@@ -1,7 +1,7 @@
 // Quick add / edit, currency picker and expense detail.
 import { html, useEffect, useMemo, useRef, useState } from './ui.js';
 import { Icon } from './icons.js';
-import { Chip, Segmented, Sheet, SheetHeader, tight } from './components.js';
+import { Chip, Segmented, Sheet, SheetHeader, closeSheet, tight } from './components.js';
 import {
   CATEGORIES, REACTIONS, reactionKey, dateFundBalance, deleteExpense, memberName, me, partner,
   react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow, entryNumber,
@@ -261,7 +261,7 @@ export function AddSheet({ editing = null, onClose }) {
           ${typing ? 'Done' : editing ? 'Save changes' : canSave ? html`<span>${tight(`Save ${fmt(num, currency)}`)}</span>` : 'Enter an amount'}
         </button>
       </div>
-      ${picker && html`<${CurrencyPicker} value=${currency} home=${home} onPick=${changeCurrency} onClose=${() => setPicker(false)}/>`}
+      ${picker && html`<${CurrencyPicker} value=${currency} home=${home} onPick=${changeCurrency} onClose=${() => closeSheet(() => setPicker(false))}/>`}
     <//>`;
 }
 

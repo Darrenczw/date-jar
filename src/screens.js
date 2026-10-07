@@ -1,12 +1,12 @@
 // The five main screens: Home, History, Settle, Recap, Settings.
-import { html, useEffect, useMemo, useState } from './ui.js';
-import { Icon } from './icons.js';
-import { Avatar, Chip, Empty, ExpenseRow, Jar, MonthNav, Segmented, Sheet, SheetHeader, TextBox, lookFor, tight } from './components.js';
-import { HPBar, Scene, Sprite, moodFor } from './sprites.js';
+import { html, useEffect, useMemo, useRef, useState } from './ui.js';
+import { Icon, categoryIcon } from './icons.js';
+import { Avatar, Chip, Empty, ExpenseRow, Jar, MonthNav, Segmented, Sheet, SheetHeader, TextBox, lookFor, avatarFor, closeSheet, tight } from './components.js';
+import { AVATAR_OPTIONS, HPBar, Scene, Sprite, moodFor } from './sprites.js';
 import {
   CATEGORIES, MODE, createInvite, dateFundBalance, defaultSettleMonth, leaveCouple, liveExpenses, me, memberName,
   monthSpent, partner, reopenMonth, setPref, settleMonth, settlementRow, signOut, toast, updateCouple,
-  updateMemberName, useStore, switchDemoUser, flush,
+  updateMemberName, updateMemberAvatar, useStore, switchDemoUser, flush,
 } from './store.js';
 import {
   addMonths, budgetExpenses, currentMonthKey, dayLabel, fmt, monthExpenses, monthKey, monthLabel, pace,
@@ -48,16 +48,45 @@ function leftFrac(spent, budget) {
   return budget > 0 ? Math.max(0, (budget - spent) / budget) : 0;
 }
 
-/** The two partners standing beside the jar. */
-function Party({ s, mood, jar }) {
+/** What a character says when tapped, by how the month is going. */
+const LINES = {
+  happy: ['Hi there!', "We're on track!", 'Date night soon?', 'The honey looks good!', 'Yay, teamwork!', 'Hehe, hi!'],
+  alert: ['Easy there…', 'Pace ourselves?', 'Maybe a picnic date?', "Hmm, it's going fast"],
+  sweat: ['Uh oh…', 'Cook at home tonight?', 'The jar is sweating!', 'Free dates exist!'],
+  idle: ['Hi!', 'Hehe'],
+};
+const pick = (list, last) => {
+  const options = list.filter((l) => l !== last);
+  return options[Math.floor(Math.random() * options.length)] ?? list[0];
+};
+const tapFeel = () => { try { navigator.vibrate?.(12); } catch { /* not supported */ } };
+
+/** The two partners standing beside the jar. Tap a character to make it jump and talk; tap the jar to slosh it. */
+function Party({ s, mood, jarProps, leftLabel }) {
   const mine = me(s);
   const other = partner(s);
+  const [talk, setTalk] = useState({ who: null, text: '', key: 0, action: '' });
+  const timer = useRef(null);
+  const react = (who, text, action) => {
+    tapFeel();
+    clearTimeout(timer.current);
+    setTalk((t) => ({ who, text, key: t.key + 1, action }));
+    timer.current = setTimeout(() => setTalk((t) => ({ ...t, who: null, text: '' })), 2400);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const tapChar = (m) => react(m.user_id, pick(LINES[mood] ?? LINES.idle, talk.text), talk.key % 3 === 2 ? 'spin' : 'jump');
+  const char = (m, delay) => html`
+    <button class="tap-char" onClick=${() => tapChar(m)} aria-label=${`${m.user_id === mine?.user_id ? 'You' : m.display_name}: tap to say hi`}>
+      <${Sprite} avatar=${avatarFor(m.user_id, s)} mood=${mood} name=${m.display_name} delay=${delay}
+        say=${talk.who === m.user_id ? talk.text : ''} action=${talk.who === m.user_id ? talk.action : ''} actionKey=${talk.key}/>
+    </button>`;
   return html`
     <div class="party-stage">
-      ${mine && html`<${Sprite} look=${lookFor(mine.user_id, s)} tone="you" mood=${mood} name=${mine.display_name}/>`}
-      ${jar}
-      ${other ? html`<${Sprite} look=${lookFor(other.user_id, s)} tone="partner" mood=${mood} name=${other.display_name} delay=${400}/>`
-        : html`<div class="sprite sprite-ghost"><span class="sprite-name">Player 2?</span></div>`}
+      ${mine && char(mine, 0)}
+      <button class="tap-jar" onClick=${() => react('jar', leftLabel, 'wobble')} aria-label=${`Jar: ${leftLabel}`}>
+        <${Jar} ...${jarProps} say=${talk.who === 'jar' ? talk.text : ''} actionKey=${talk.who === 'jar' ? talk.key : 0}/>
+      </button>
+      ${other ? char(other, 400) : html`<div class="sprite sprite-ghost"><span class="sprite-name">Player 2?</span></div>`}
     </div>`;
 }
 
@@ -133,8 +162,8 @@ export function Home({ nav }) {
         </p>`}
 
       <${Scene}>
-        <${Party} s=${s} mood=${moodFor(p.status)} jar=${html`
-          <${Jar} left=${left} pace=${p.isCurrent ? 1 - p.timePct : null} dayLabel="today" dropKey=${justSaved} summary=${summary}/>`}/>
+        <${Party} s=${s} mood=${moodFor(p.status)} leftLabel=${p.status === 'over' ? `${fmt(spent - budget, home)} over!` : `${fmt(Math.max(0, budget - spent), home)} left!`}
+          jarProps=${{ left, pace: p.isCurrent ? 1 - p.timePct : null, dayLabel: 'today', dropKey: justSaved, summary }}/>
       <//>
 
       <div class="hp-row">
@@ -290,7 +319,7 @@ export function Settle({ nav, arg }) {
             const you = b.member.user_id === mine?.user_id;
             return html`
               <div key=${b.member.user_id} role="listitem" class=${`duel-side ${b.amount === 0 ? 'zero' : ''}`}>
-                <${Sprite} look=${lookFor(b.member.user_id, s)} tone=${you ? 'you' : 'partner'} mood=${b.amount > 0 ? 'happy' : 'idle'} delay=${you ? 0 : 400}/>
+                <${Sprite} avatar=${avatarFor(b.member.user_id, s)} mood=${b.amount > 0 ? 'happy' : 'idle'} delay=${you ? 0 : 400}/>
                 <span class="duel-name">Joint → ${you ? 'you' : b.member.display_name}</span>
                 <b class="duel-amt">${b.amount === 0 ? '—' : tight(fmt(b.amount, home, { cents: true }))}</b>
                 <span class="duel-sub">${b.amount === 0 ? 'nothing to move' : `${you ? 'you' : 'they'} paid ${b.count} ${b.count === 1 ? 'time' : 'times'}`}</span>
@@ -376,24 +405,102 @@ function recapStats(s, key) {
   return { home, list, total, budget, topCat, topPlace, topDay, foreign, biggest, days: Object.keys(byDay).length, fund: row?.fund_contribution ?? Math.max(0, budget - total), settled: !!row, fundBalance: dateFundBalance(s) };
 }
 
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** Counts a number up from zero while its card is on screen. */
+function CountUp({ value, format, active }) {
+  const [shown, setShown] = useState(active && !reducedMotion() ? 0 : value);
+  useEffect(() => {
+    if (!active) return undefined;
+    if (reducedMotion()) { setShown(value); return undefined; }
+    let raf;
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / 1100);
+      setShown(value * (1 - (1 - t) ** 3));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    setShown(0);
+    raf = requestAnimationFrame(tick);
+    // Frames pause in a background tab; always land on the real number.
+    const settle = setTimeout(() => setShown(value), 1300);
+    return () => { cancelAnimationFrame(raf); clearTimeout(settle); };
+  }, [active, value]);
+  return tight(format(shown));
+}
+
+/** A burst of pixel confetti in the palette. Positions are seeded so every replay looks the same. */
+function Confetti({ count = 26 }) {
+  const colors = ['#ffc83d', '#e9573f', '#5cb26b', '#6cc3ef', '#b9a6e8', '#fff4dc'];
+  const bits = Array.from({ length: count }, (_, i) => {
+    const angle = (i / count) * Math.PI * 2 + (i % 3) * 0.4;
+    const dist = 110 + ((i * 37) % 90);
+    return `--x:${Math.round(Math.cos(angle) * dist)}px;--y:${Math.round(Math.sin(angle) * dist - 60)}px;--c:${colors[i % colors.length]};--d:${(i % 5) * 40}ms;--s:${6 + (i % 3) * 3}px`;
+  });
+  return html`<div class="confetti" aria-hidden="true">${bits.map((st, i) => html`<i key=${i} style=${st}></i>`)}</div>`;
+}
+
+/** Coins that rain down into the treasure chest. */
+function CoinRain({ count = 9 }) {
+  return html`<div class="coin-rain" aria-hidden="true">${Array.from({ length: count }, (_, i) => html`
+    <i key=${i} style=${`--x:${((i * 29) % 100) - 50}px;--d:${i * 110}ms`}></i>`)}</div>`;
+}
+
 export function Recap({ month, onClose }) {
   const s = useStore();
   const r = recapStats(s, month);
   const label = monthLabel(month, { withYear: false });
   const catLabel = (id) => CATEGORIES.find((c) => c.id === id)?.label ?? 'Other';
   const under = r.total <= r.budget;
+  const money = (v) => fmt(Math.round(v * 100) / 100, r.home, { cents: true });
+  const mine = me(s);
+  const other = partner(s);
   const cards = [];
 
-  cards.push({ tone: 'sun', art: 'party', title: `${label}, in the jar`, big: fmt(r.total, r.home), body: under ? `of our ${fmt(r.budget, r.home)}. ${fmt(r.budget - r.total, r.home)} to spare.` : `of our ${fmt(r.budget, r.home)}. We went ${fmt(r.total - r.budget, r.home)} over, and that's okay.` });
-  if (r.topCat) cards.push({ tone: 'tomato', title: 'Where it went', big: catLabel(r.topCat[0]), body: `${fmt(r.topCat[1], r.home)}, about ${Math.round((r.topCat[1] / Math.max(r.total, 1)) * 100)}% of the month.` });
-  if (r.topPlace) cards.push({ tone: 'leaf', title: r.topPlace.n > 1 ? 'Our regular' : 'Top spot', big: r.topPlace.name, body: r.topPlace.n > 1 ? `${r.topPlace.n} times, ${fmt(r.topPlace.total, r.home)} in all.` : `${fmt(r.topPlace.total, r.home)}.` });
-  if (r.topDay) cards.push({ tone: 'indigo', title: 'Priciest day', big: shortDate(r.topDay[0]), body: `${fmt(r.topDay[1], r.home)} in one day${r.biggest ? `, led by ${r.biggest.description}` : ''}.` });
-  cards.push({ tone: 'cream', title: 'Out together', big: `${r.days} ${r.days === 1 ? 'day' : 'days'}`, body: `${r.list.length} ${r.list.length === 1 ? 'expense' : 'expenses'} shared across ${label}.` });
-  if (r.foreign.length) cards.push({ tone: 'sky', title: 'Abroad', big: r.foreign.join(' · '), body: `We spent in ${r.foreign.length} ${r.foreign.length === 1 ? 'currency' : 'currencies'} besides ${r.home}.` });
-  cards.push({ tone: 'sun', art: 'chest', title: 'Treasure chest', big: fmt(r.fundBalance + (r.settled ? 0 : r.fund), r.home), body: r.settled ? `Now in the fund, ${fmt(r.fund, r.home)} added from ${label}.` : `${fmt(r.fund, r.home)} will join once ${label} is settled. Treat yourselves.` });
+  cards.push({ kind: 'party', tone: 'sun', title: `${label}, in the jar`, value: r.total, format: money,
+    body: under ? `of our ${fmt(r.budget, r.home)}. ${fmt(r.budget - r.total, r.home)} to spare. Nice one, team!` : `of our ${fmt(r.budget, r.home)}. ${fmt(r.total - r.budget, r.home)} over, and that's okay.` });
+  if (r.topCat) {
+    const pct = Math.round((r.topCat[1] / Math.max(r.total, 1)) * 100);
+    cards.push({ kind: 'category', tone: 'tomato', title: 'Where the honey went', big: catLabel(r.topCat[0]), icon: categoryIcon(r.topCat[0]), pct,
+      body: `${fmt(r.topCat[1], r.home)}, about ${pct}% of the month.` });
+  }
+  if (r.topPlace) cards.push({ kind: 'stamp', tone: 'leaf', title: r.topPlace.n > 1 ? 'Our regular' : 'Top spot', big: r.topPlace.name,
+    body: r.topPlace.n > 1 ? `${r.topPlace.n} times this month, ${fmt(r.topPlace.total, r.home)} in all.` : `${fmt(r.topPlace.total, r.home)} well spent.` });
+  if (r.topDay) cards.push({ kind: 'day', tone: 'indigo', title: 'Biggest day out', big: shortDate(r.topDay[0]), value: r.topDay[1], format: money,
+    body: r.biggest ? `Led by ${r.biggest.description}.` : 'What a day.' });
+  cards.push({ kind: 'hearts', tone: 'cream', title: 'Out together', value: r.days, format: (v) => `${Math.round(v)} ${Math.round(v) === 1 ? 'day' : 'days'}`,
+    hearts: Math.min(r.days, 31), body: `${r.list.length} shared ${r.list.length === 1 ? 'expense' : 'expenses'} in ${label}.` });
+  if (r.foreign.length) cards.push({ kind: 'travel', tone: 'sky', title: 'Abroad', big: r.foreign.join(' · '),
+    body: `We spent in ${r.foreign.length} ${r.foreign.length === 1 ? 'currency' : 'currencies'} besides ${r.home}. Bon voyage!` });
+  cards.push({ kind: 'chest', tone: 'sun', title: 'Treasure chest', value: r.fundBalance + (r.settled ? 0 : r.fund), format: money,
+    body: r.settled ? `+${fmt(r.fund, r.home)} from ${label}. Treat yourselves!` : `${fmt(r.fund, r.home)} joins once ${label} is settled. Treat yourselves!` });
 
   const [i, setI] = useState(0);
-  const onScroll = (e) => setI(Math.round(e.target.scrollLeft / e.target.clientWidth));
+  const track = useRef(null);
+  // Where we are heading: lets quick repeated taps queue up while a card is still sliding in.
+  const target = useRef(0);
+  const onScroll = (e) => {
+    const at = Math.round(e.target.scrollLeft / e.target.clientWidth);
+    setI(at);
+    if (Math.abs(e.target.scrollLeft - at * e.target.clientWidth) < 2) target.current = at;
+  };
+  const step = (delta) => {
+    const el = track.current;
+    if (!el) return;
+    const next = Math.max(0, Math.min(cards.length - 1, target.current + delta));
+    target.current = next;
+    el.scrollTo({ left: next * el.clientWidth, behavior: reducedMotion() ? 'auto' : 'smooth' });
+  };
+  // Story-style: tap the right side for the next card, left for the previous.
+  const onTap = (e) => {
+    if (e.target.closest('button')) return;
+    const box = track.current.getBoundingClientRect();
+    step(e.clientX - box.left > box.width / 3 ? 1 : -1);
+  };
+  const onKey = (e) => {
+    if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+  };
 
   const share = async () => {
     const text = `${label} in our Date Jar: ${fmt(r.total, r.home)} of ${fmt(r.budget, r.home)}${r.topCat ? `, mostly ${catLabel(r.topCat[0]).toLowerCase()}` : ''}.`;
@@ -401,33 +508,53 @@ export function Recap({ month, onClose }) {
     if (res === 'copied') toast('Copied to your clipboard');
   };
 
+  const art = (c, active) => {
+    switch (c.kind) {
+      case 'party': return html`
+        <div class="recap-scene" aria-hidden="true">
+          ${active && html`<${Confetti}/>`}
+          <${Scene} compact><div class="party-stage">
+            ${mine && html`<${Sprite} avatar=${avatarFor(mine.user_id, s)} mood="happy" action=${active ? 'cheer' : ''} actionKey=${active ? 1 : 0}/>`}
+            <${Jar} size="sm" left=${r.budget > 0 ? Math.max(0, (r.budget - r.total) / r.budget) : 0} summary=""/>
+            ${other && html`<${Sprite} avatar=${avatarFor(other.user_id, s)} mood="happy" delay=${200} action=${active ? 'cheer' : ''} actionKey=${active ? 1 : 0}/>`}
+          </div><//>
+        </div>`;
+      case 'category': return html`<div class="recap-art pop" aria-hidden="true"><span class="art-tile"><${Icon} name=${c.icon} size=${36}/></span></div>`;
+      case 'day': return html`<div class="recap-art flip" aria-hidden="true"><span class="art-tile"><${Icon} name="calendar" size=${36}/></span></div>`;
+      case 'travel': return html`<div class="recap-art fly" aria-hidden="true"><span class="art-plane"><${Icon} name="travel" size=${36}/></span></div>`;
+      case 'chest': return html`<div class="recap-art chest-art" aria-hidden="true">${active && html`<${CoinRain}/>`}<span class="fund-icon big chest-bounce"><${Icon} name="chest" size=${36}/></span></div>`;
+      case 'stamp': return html`<div class="recap-art pop" aria-hidden="true"><span class="art-tile"><${Icon} name="heart" size=${36}/></span></div>`;
+      default: return null;
+    }
+  };
+
   return html`
     <${Sheet} title=${`${label} recap`} onClose=${onClose} full>
       <div class="recap">
         <header class="recap-head">
           <button class="icon-btn" onClick=${onClose} aria-label="Close recap"><${Icon} name="close"/></button>
-          <div class="dots" aria-hidden="true">${cards.map((_, n) => html`<i key=${n} class=${n === i ? 'on' : ''}/>`)}</div>
+          <div class="story" aria-hidden="true">${cards.map((_, n) => html`<i key=${n} class=${n < i ? 'done' : n === i ? 'on' : ''}/>`)}</div>
           <button class="icon-btn" onClick=${share} aria-label="Share recap"><${Icon} name="share"/></button>
         </header>
-        <div class="recap-track" onScroll=${onScroll} tabindex="0" aria-label="Recap cards, swipe sideways">
+        <div ref=${track} class="recap-track" onScroll=${onScroll} onClick=${onTap} onKeyDown=${onKey} tabindex="0"
+          aria-label=${`Recap card ${i + 1} of ${cards.length}. Use arrow keys or swipe.`}>
           ${cards.map((c, n) => html`
-            <article key=${n} class=${`recap-card tone-${c.tone}`}>
-              ${c.art === 'party' && html`
-                <div class="recap-scene" aria-hidden="true"><${Scene} compact>
-                  <div class="party-stage">
-                    <${Sprite} look="a" tone="you" mood="happy"/>
-                    <${Jar} size="sm" left=${r.budget > 0 ? Math.max(0, (r.budget - r.total) / r.budget) : 0} summary=""/>
-                    <${Sprite} look="b" tone="partner" mood="happy" delay=${400}/>
-                  </div>
-                <//></div>`}
-              ${c.art === 'chest' && html`<div class="recap-art" aria-hidden="true"><span class="fund-icon big"><${Icon} name="chest" size=${36}/></span></div>`}
+            <article key=${n} class=${`recap-card tone-${c.tone} kind-${c.kind} ${n === i ? 'active' : ''}`} aria-hidden=${n !== i}>
+              ${art(c, n === i)}
               <div class="recap-panel">
                 <h2>${c.title}</h2>
-                <p class="recap-big">${tight(c.big)}</p>
+                <p class=${`recap-big ${c.kind === 'stamp' ? 'stamp' : ''}`}>${c.value != null ? html`<${CountUp} value=${c.value} format=${c.format} active=${n === i}/>` : tight(c.big)}</p>
+                ${c.kind === 'day' && html`<p class="recap-sub">${c.big}</p>`}
+                ${c.kind === 'category' && html`<div class="recap-meter" aria-hidden="true"><i style=${`--pct:${c.pct / 100}`}></i></div>`}
+                ${c.kind === 'hearts' && html`<div class="heart-row" aria-hidden="true">${Array.from({ length: c.hearts }, (_, h) => html`<span key=${h} style=${`--i:${h}`}><${Icon} name="heart" size=${12}/></span>`)}</div>`}
                 <p class="recap-body">${c.body}</p>
               </div>
-              ${n === 0 && html`<p class="recap-swipe">Swipe <${Icon} name="next" size=${12}/></p>`}
+              ${n === 0 && html`<p class="recap-swipe">Tap or swipe <${Icon} name="next" size=${12}/></p>`}
             </article>`)}
+        </div>
+        <div class="recap-nav">
+          <button class="btn btn-secondary small" onClick=${() => step(-1)} disabled=${i === 0} aria-label="Previous card"><${Icon} name="back" size=${12}/></button>
+          <button class="btn btn-secondary small" onClick=${() => (i === cards.length - 1 ? onClose() : step(1))}>${i === cards.length - 1 ? 'Done' : 'Next'}</button>
         </div>
       </div>
     <//>`;
@@ -524,6 +651,57 @@ function InviteSheet({ onClose }) {
     <//>`;
 }
 
+/** Dress up a character: hairstyle, colours and an accessory, with a live preview. */
+function CharacterSheet({ member, onClose }) {
+  const s = useStore();
+  const [look, setLook] = useState(avatarFor(member.user_id, s));
+  const [bounce, setBounce] = useState(0);
+  const you = member.user_id === s.session.userId;
+  const set = (key, value) => { setLook((a) => ({ ...a, [key]: value })); setBounce((n) => n + 1); };
+  const surprise = () => {
+    const any = (key) => AVATAR_OPTIONS[key][Math.floor(Math.random() * AVATAR_OPTIONS[key].length)].id;
+    setLook({ hair: any('hair'), hairColor: any('hairColor'), skin: any('skin'), shirt: any('shirt'), acc: any('acc') });
+    setBounce((n) => n + 1);
+  };
+  const save = () => {
+    updateMemberAvatar(member.user_id, look);
+    onClose();
+    toast(you ? 'Looking good!' : `${member.display_name} looks great!`, { tone: 'good' });
+  };
+  const swatches = (key, label) => html`
+    <div class="field-group">
+      <span class="field-label" id=${`lbl-${key}`}>${label}</span>
+      <div class="swatches" role="radiogroup" aria-labelledby=${`lbl-${key}`}>
+        ${AVATAR_OPTIONS[key].map((o) => html`
+          <button key=${o.id} type="button" role="radio" aria-checked=${look[key] === o.id} aria-label=${o.label}
+            class=${`swatch ${look[key] === o.id ? 'on' : ''}`} style=${`--sw:${o.id}`} onClick=${() => set(key, o.id)}></button>`)}
+      </div>
+    </div>`;
+  const choices = (key, label) => html`
+    <div class="field-group">
+      <span class="field-label">${label}</span>
+      <div class="chip-row" role="group" aria-label=${label}>
+        ${AVATAR_OPTIONS[key].map((o) => html`<${Chip} key=${o.id} on=${look[key] === o.id} onClick=${() => set(key, o.id)}>${o.label}<//>`)}
+      </div>
+    </div>`;
+  return html`
+    <${Sheet} title=${`Customise ${you ? 'your character' : member.display_name}`} onClose=${onClose} tall>
+      <${SheetHeader} title=${you ? 'Your character' : member.display_name} onClose=${onClose}
+        right=${html`<button class="chip" onClick=${surprise}>Surprise me</button>`}/>
+      <div class="sheet-scroll char-scroll">
+        <div class="char-stage"><${Scene} compact>
+          <div class="party-stage"><${Sprite} avatar=${look} mood="happy" name=${member.display_name} size=${96} action=${bounce ? 'jump' : ''} actionKey=${bounce}/></div>
+        <//></div>
+        ${choices('hair', 'Hairstyle')}
+        ${swatches('hairColor', 'Hair colour')}
+        ${swatches('skin', 'Skin')}
+        ${swatches('shirt', 'Shirt')}
+        ${choices('acc', 'Accessory')}
+      </div>
+      <div class="add-foot"><button class="btn btn-primary btn-block" onClick=${save}>Save look</button></div>
+    <//>`;
+}
+
 export function Settings({ nav }) {
   const s = useStore();
   const home = s.couple.home_currency;
@@ -533,6 +711,7 @@ export function Settings({ nav }) {
   const [budget, setBudget] = useState(String(s.couple.monthly_budget));
   const [invite, setInvite] = useState(false);
   const [curPicker, setCurPicker] = useState(false);
+  const [dressing, setDressing] = useState(null);
   const locked = liveExpenses(s).length > 0;
 
   const saveBudget = () => {
@@ -556,7 +735,20 @@ export function Settings({ nav }) {
         ${MODE === 'demo' && other && html`<div class="setting"><span>Pretend to be ${s.session.userId === 'me' ? other.display_name : mine.display_name}</span><button class="btn btn-secondary small" onClick=${() => { switchDemoUser(); toast('Switched who is holding the phone'); }}>Switch</button></div>`}
       </div>
 
-      <h2 class="list-label">Money</h2>
+<h2 class="list-label">Characters</h2>
+<div class="group">
+  ${[mine, other].filter(Boolean).map((m) => {
+    const editable = MODE === 'demo' || m.user_id === s.session.userId;
+    return html`
+      <div key=${m.user_id} class="setting char-row">
+        <span class="char-mini" aria-hidden="true"><${Sprite} avatar=${avatarFor(m.user_id, s)} size=${36}/></span>
+        <span>${m.user_id === mine?.user_id ? 'You' : m.display_name}<small>${editable ? 'Hair, colours and accessories' : 'They can change their own look'}</small></span>
+        ${editable && html`<button class="btn btn-secondary small" onClick=${() => setDressing(m)}>Customise</button>`}
+      </div>`;
+  })}
+</div>
+
+<h2 class="list-label">Money</h2>
       <div class="group">
         <label class="setting"><span>Monthly budget</span>
           <span class="inline-input"><i>${home}</i><input inputmode="decimal" value=${budget} onInput=${(e) => setBudget(e.target.value.replace(/[^0-9.]/g, ''))} onBlur=${saveBudget}/></span></label>
@@ -579,8 +771,9 @@ export function Settings({ nav }) {
       </div>
 
       <p class="about">Date Jar · test version${MODE === 'demo' ? ' · demo mode' : ''}<br/>Rates by open.er-api.com, refreshed daily.</p>
-      ${invite && html`<${InviteSheet} onClose=${() => setInvite(false)}/>`}
-      ${curPicker && html`<${CurrencyPicker} value=${home} home=${home} onPick=${(c) => { updateCouple({ home_currency: c }); setCurPicker(false); }} onClose=${() => setCurPicker(false)}/>`}
+      ${invite && html`<${InviteSheet} onClose=${() => closeSheet(() => setInvite(false))}/>`}
+      ${dressing && html`<${CharacterSheet} member=${dressing} onClose=${() => closeSheet(() => setDressing(null))}/>`}
+      ${curPicker && html`<${CurrencyPicker} value=${home} home=${home} onPick=${(c) => { updateCouple({ home_currency: c }); setCurPicker(false); }} onClose=${() => closeSheet(() => setCurPicker(false))}/>`}
     </section>`;
 }
 

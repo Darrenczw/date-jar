@@ -99,8 +99,8 @@ export const cloud = {
         return check(await c.from('couples').update(fields).eq('id', id));
       }
       case 'member': {
-        const { couple_id, user_id, display_name } = op.row;
-        return check(await c.from('members').update({ display_name }).eq('couple_id', couple_id).eq('user_id', user_id));
+        const { couple_id, user_id, display_name, avatar } = op.row;
+        return check(await c.from('members').update({ display_name, avatar: avatar ?? null }).eq('couple_id', couple_id).eq('user_id', user_id));
       }
       default:
         return null;

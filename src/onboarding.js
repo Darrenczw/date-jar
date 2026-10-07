@@ -1,7 +1,7 @@
 // First-run flow: sign in (cloud), then create a jar or join one with an invite code.
 import { html, useState } from './ui.js';
 import { Icon } from './icons.js';
-import { Jar } from './components.js';
+import { Jar, closeSheet } from './components.js';
 import { Scene, Sprite } from './sprites.js';
 import { CurrencyPicker } from './add.js';
 import { MODE, createCouple, joinCouple, sendCode, verifyCode, useStore, signOut } from './store.js';
@@ -126,7 +126,7 @@ export function Onboarding() {
         ${error && html`<p class="error" role="alert">${error}</p>`}
         <button class="btn btn-primary btn-block" disabled=${busy}>${busy ? 'Creating…' : 'Create the jar'}</button>
       </form>
-      ${picker && html`<${CurrencyPicker} value=${currency} home=${currency} onPick=${(c) => { setCurrency(c); setPicker(false); }} onClose=${() => setPicker(false)}/>`}`,
+      ${picker && html`<${CurrencyPicker} value=${currency} home=${currency} onPick=${(c) => { setCurrency(c); setPicker(false); }} onClose=${() => closeSheet(() => setPicker(false))}/>`}`,
 
     join: html`
       <button class="back" onClick=${() => setStep('choose')}><${Icon} name="back" size=${20}/> Back</button>

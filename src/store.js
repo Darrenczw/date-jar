@@ -367,6 +367,14 @@ export function switchDemoUser() {
   setState((s) => ({ session: { ...s.session, userId: s.session.userId === 'me' ? 'partner' : 'me' } }));
 }
 
+/** Save a member's character look ({hair, hairColor, skin, shirt, acc}). */
+export function updateMemberAvatar(userId, avatar) {
+  const members = state.members.map((m) => (m.user_id === userId ? { ...m, avatar } : m));
+  setState({ members });
+  const row = members.find((m) => m.user_id === userId);
+  if (MODE === 'cloud' && row) enqueue({ type: 'member', row });
+}
+
 export function setPref(key, value) {
   setState((s) => ({ prefs: { ...s.prefs, [key]: value } }));
 }

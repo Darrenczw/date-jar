@@ -90,7 +90,7 @@ function jarCells(rows, paceRows) {
  * The jar holds the month's budget; honey drains a row at a time as you spend.
  * `left` = fraction of budget remaining (0..1), `pace` = fraction that should remain today.
  */
-export function PixelJar({ left, pace = null, dayLabel = '', dropKey = null, summary, size = 'lg' }) {
+export function PixelJar({ left, pace = null, dayLabel = '', dropKey = null, summary, size = 'lg', say = '', actionKey = 0 }) {
   const target = left <= 0 ? 0 : Math.max(1, Math.round(Math.min(left, 1) * JAR_ROWS));
   const [rows, setRows] = useState(target);
   const timer = useRef(null);
@@ -116,41 +116,89 @@ export function PixelJar({ left, pace = null, dayLabel = '', dropKey = null, sum
 
   return html`
     <div class=${`pjar pjar-${size}`} role="img" aria-label=${summary}>
-      <svg viewBox=${`-1 -1 ${W + 2} ${H + 2}`} shape-rendering="crispEdges" aria-hidden="true">
+      <svg key=${actionKey} class=${actionKey ? 'act-wobble' : ''} viewBox=${`-1 -1 ${W + 2} ${H + 2}`} shape-rendering="crispEdges" aria-hidden="true">
         ${parts.map((p) => html`<path key=${p.c} class=${`px-${p.c}`} d=${p.d}/>`)}
       </svg>
       ${paceTop != null && dayLabel && html`<span class="pace-tag" style=${`top:${paceTop}%`}>${dayLabel}</span>`}
       ${dropKey != null && html`<span key=${dropKey} class="coin-hop" aria-hidden="true"></span>`}
+      ${say && html`<span class="speech jar-speech" key=${actionKey} aria-live="polite">${say}</span>`}
     </div>`;
 }
 
 // ---------------------------------------------------------------- characters
 
-const BODY_A = [
+// Every look shares one 10×14 body; hairstyles only change the top rows.
+const BODY = [
   '..hhhhhh..', '.hhhhhhhh.', '.hssssssh.', '.sesssses.', '.ssssssss.', '.srssssrs.', '..ssssss..',
   '..cccccc..', '.cccccccc.', 'sccccccccs', '.cccccccc.', '..pppppp..', '..pp..pp..', '..kk..kk..'];
-const BODY_B = [
-  '..hhhhhh..', '.hhhhhhhh.', 'hhhhhhhhhh', 'hsessssesh', 'hssssssssh', 'hsrssssrsh', 'h.ssssss.h',
-  '..cccccc..', '.cccccccc.', 'sccccccccs', '.cccccccc.', '..pppppp..', '..pp..pp..', '..kk..kk..'];
-const CODES = { h: 'hair', s: 'skin', e: 'line', r: 'blush', c: 'shirt', p: 'pants', k: 'line' };
+const HAIR = {
+  short: BODY,
+  bob: ['..hhhhhh..', '.hhhhhhhh.', 'hhhhhhhhhh', 'hsessssesh', 'hssssssssh', 'hsrssssrsh', 'h.ssssss.h', ...BODY.slice(7)],
+  bun: ['....hh....', '..hhhhhh..', '.hhhhhhhh.', '.sesssses.', ...BODY.slice(4)],
+  spiky: ['.h.hh.hh..', '.hhhhhhhh.', ...BODY.slice(2)],
+};
+// Accessories draw over the body: a = accessory colour, g/e = outline ink, y = sun.
+const ACCESSORY = {
+  none: [],
+  cap: ['..aaaaaa..', '.aaaaaaaaa'],
+  glasses: ['', '', '', '.geggggeg.'],
+  bow: ['.......a.a', '........a.'],
+  flower: ['........a.', '.......aya', '........a.'],
+};
+const CODES = { h: 'hair', s: 'skin', e: 'line', r: 'blush', c: 'shirt', p: 'pants', k: 'line', a: 'acc', g: 'line', y: 'acc-y' };
 
-function spriteParts(rowsDef) {
-  const cells = [];
-  rowsDef.forEach((row, y) => [...row].forEach((ch, x) => { if (ch !== '.') cells.push([x, y, CODES[ch]]); }));
-  return runs([...cells, ...addOutline(cells, 10, 14)]);
+export const AVATAR_OPTIONS = {
+  hair: [{ id: 'short', label: 'Short' }, { id: 'bob', label: 'Bob' }, { id: 'bun', label: 'Bun' }, { id: 'spiky', label: 'Spiky' }],
+  hairColor: [
+    { id: '#3b2a24', label: 'Espresso' }, { id: '#5a3a2e', label: 'Brown' }, { id: '#8a4b2a', label: 'Chestnut' },
+    { id: '#d9a441', label: 'Honey' }, { id: '#6b6b78', label: 'Ash' }, { id: '#e48aa8', label: 'Pink' }, { id: '#4f6fd1', label: 'Blue' }],
+  skin: [
+    { id: '#ffe0c4', label: 'Light' }, { id: '#f7c9a0', label: 'Fair' }, { id: '#e0a878', label: 'Tan' },
+    { id: '#b97a4f', label: 'Brown' }, { id: '#8a5634', label: 'Deep' }],
+  shirt: [
+    { id: '#ffc83d', label: 'Sun' }, { id: '#6cc3ef', label: 'Sky' }, { id: '#e9573f', label: 'Tomato' },
+    { id: '#5cb26b', label: 'Leaf' }, { id: '#b9a6e8', label: 'Lilac' }, { id: '#fff4dc', label: 'Cream' }, { id: '#4b4a7a', label: 'Indigo' }],
+  acc: [{ id: 'none', label: 'None' }, { id: 'cap', label: 'Cap' }, { id: 'glasses', label: 'Glasses' }, { id: 'bow', label: 'Bow' }, { id: 'flower', label: 'Flower' }],
+};
+
+/** The look a member starts with: the jar's creator in sun yellow, the partner in sky blue. */
+export function defaultAvatar(index = 0) {
+  return index === 0
+    ? { hair: 'short', hairColor: '#5a3a2e', skin: '#f7c9a0', shirt: '#ffc83d', acc: 'none' }
+    : { hair: 'bob', hairColor: '#5a3a2e', skin: '#f7c9a0', shirt: '#6cc3ef', acc: 'none' };
 }
-const PARTS = { a: spriteParts(BODY_A), b: spriteParts(BODY_B) };
+
+const partsCache = new Map();
+function spriteParts(hair, acc) {
+  const key = `${hair}|${acc}`;
+  if (partsCache.has(key)) return partsCache.get(key);
+  const grid = new Map();
+  (HAIR[hair] ?? HAIR.short).forEach((row, y) => [...row].forEach((ch, x) => { if (ch !== '.') grid.set(`${x},${y}`, [x, y, CODES[ch]]); }));
+  (ACCESSORY[acc] ?? []).forEach((row, y) => [...row].forEach((ch, x) => { if (ch !== '.') grid.set(`${x},${y}`, [x, y, CODES[ch]]); }));
+  const cells = [...grid.values()];
+  const parts = runs([...cells, ...addOutline(cells, 10, 14)]);
+  partsCache.set(key, parts);
+  return parts;
+}
 
 const MOOD_ICON = { happy: 'heart', alert: 'alert', sweat: 'drop', idle: null };
 
-/** A little partner character. `look` a|b, `tone` you|partner, `mood` happy|alert|sweat|idle. */
-export function Sprite({ look = 'a', tone = 'you', mood = 'idle', name, delay = 0 }) {
+/**
+ * A little partner character.
+ * `avatar` {hair, hairColor, skin, shirt, acc}; `mood` happy|alert|sweat|idle;
+ * `say` shows a speech bubble; `action` plays a one-off move (jump|wave|cheer).
+ */
+export function Sprite({ avatar, look = 'a', mood = 'idle', name, delay = 0, say = '', action = '', actionKey = 0, size = 60 }) {
+  const a = avatar ?? defaultAvatar(look === 'a' ? 0 : 1);
   const icon = MOOD_ICON[mood];
+  const accColor = a.acc === 'cap' ? '#e9573f' : '#f27bb0';
+  const style = `--delay:${delay}ms;--hair:${a.hairColor};--skin:${a.skin};--shirt:${a.shirt};--acc:${accColor};--sprite-w:${size}px`;
   return html`
-    <div class=${`sprite sprite-${tone} mood-${mood}`} style=${`--delay:${delay}ms`}>
-      ${icon && html`<span class="bubble" aria-hidden="true"><${Icon} name=${icon} size=${12}/></span>`}
-      <svg viewBox="-1 -1 12 16" shape-rendering="crispEdges" aria-hidden="true">
-        ${PARTS[look].map((p) => html`<path key=${p.c} class=${`px-${p.c}`} d=${p.d}/>`)}
+    <div class=${`sprite mood-${mood}`} style=${style}>
+      ${say ? html`<span class="speech" key=${actionKey} aria-live="polite">${say}</span>`
+        : icon && html`<span class="bubble" aria-hidden="true"><${Icon} name=${icon} size=${12}/></span>`}
+      <svg key=${`${action}${actionKey}`} class=${action ? `act-${action}` : ''} viewBox="-1 -1 12 16" shape-rendering="crispEdges" aria-hidden="true">
+        ${spriteParts(a.hair, a.acc).map((p) => html`<path key=${p.c} class=${`px-${p.c}`} d=${p.d}/>`)}
       </svg>
       ${mood === 'sweat' && html`<i class="sweat" aria-hidden="true"></i>`}
       ${name && html`<span class="sprite-name">${name}</span>`}

@@ -1,7 +1,7 @@
 // App shell: routing between tabs, overlays, boot.
 import { html, render, useEffect, useState } from './ui.js';
 import { Icon } from './icons.js';
-import { TabBar, Toast, Jar } from './components.js';
+import { TabBar, Toast, Jar, closeSheet } from './components.js';
 import { AddSheet, DetailSheet } from './add.js';
 import { Home, History, Settle, Settings, Recap } from './screens.js';
 import { Onboarding } from './onboarding.js';
@@ -62,10 +62,10 @@ function Shell() {
       <main id="main"><${Screen} nav=${nav} arg=${route.arg} key=${route.tab}/></main>
       <${TabBar} tab=${route.tab} onTab=${(t) => go(t)} onAdd=${() => setAdding(true)} badge=${needsSettle ? 'settle' : null}/>
       <${Toast} toast=${s.toast}/>
-      ${adding && html`<${AddSheet} onClose=${() => setAdding(false)}/>`}
-      ${editing && html`<${AddSheet} editing=${s.expenses.find((e) => e.id === editing)} onClose=${() => setEditing(null)}/>`}
-      ${detail && html`<${DetailSheet} id=${detail} onClose=${() => setDetail(null)} onEdit=${(id) => { setDetail(null); setEditing(id); }}/>`}
-      ${recap && html`<${Recap} month=${recap} onClose=${() => setRecap(null)}/>`}
+      ${adding && html`<${AddSheet} onClose=${() => closeSheet(() => setAdding(false))}/>`}
+      ${editing && html`<${AddSheet} editing=${s.expenses.find((e) => e.id === editing)} onClose=${() => closeSheet(() => setEditing(null))}/>`}
+      ${detail && html`<${DetailSheet} id=${detail} onClose=${() => closeSheet(() => setDetail(null))} onEdit=${(id) => { setDetail(null); setEditing(id); }}/>`}
+      ${recap && html`<${Recap} month=${recap} onClose=${() => closeSheet(() => setRecap(null))}/>`}
     </div>`;
 }
 

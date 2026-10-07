@@ -3,7 +3,7 @@ import { html, useEffect, useRef } from './ui.js';
 import { Icon, categoryIcon } from './icons.js';
 import { fmt } from './money.js';
 import { dismissToast, entryNumber, getState, memberName, reactionKey } from './store.js';
-import { ABtnFace } from './sprites.js';
+import { ABtnFace, defaultAvatar } from './sprites.js';
 
 export { PixelJar as Jar } from './sprites.js';
 
@@ -28,6 +28,12 @@ export function lookFor(userId, s = getState()) {
   return idx <= 0 ? 'a' : 'b';
 }
 
+/** A member's character look, falling back to the default for their place in the jar. */
+export function avatarFor(userId, s = getState()) {
+  const idx = s.members.findIndex((m) => m.user_id === userId);
+  return s.members[idx]?.avatar ?? defaultAvatar(Math.max(0, idx));
+}
+
 export function Avatar({ name, tone = 'you', size = 32 }) {
   const initial = (name || '?').trim().slice(0, 1).toUpperCase();
   return html`<span class=${`avatar avatar-${tone}`} style=${`--size:${size}px`} aria-hidden="true">${initial}</span>`;
@@ -41,15 +47,24 @@ export function Sheet({ title, onClose, children, tall = false, full = false, cl
     const d = ref.current;
     if (!d) return undefined;
     if (!d.open) d.showModal();
-    const cancel = (e) => { e.preventDefault(); onClose(); };
+    const cancel = (e) => { e.preventDefault(); closeSheet(onClose); };
     d.addEventListener('cancel', cancel);
     return () => d.removeEventListener('cancel', cancel);
   }, []);
   return html`
     <dialog ref=${ref} class=${`sheet ${tall ? 'tall' : ''} ${full ? 'full' : ''} ${cls}`} aria-label=${title}
-      onClick=${(e) => e.target === ref.current && onClose()}>
+      onClick=${(e) => e.target === ref.current && closeSheet(onClose)}>
       <div class="sheet-body">${children}</div>
     </dialog>`;
+}
+
+/** Slide the topmost sheet away, then run `done` (which unmounts it). */
+export function closeSheet(done) {
+  const open = [...document.querySelectorAll('dialog.sheet[open]')].pop();
+  // Already sliding out (a nested close, or a second tap): finish now.
+  if (!open || open.classList.contains('closing') || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { done(); return; }
+  open.classList.add('closing');
+  setTimeout(done, 230);
 }
 
 export function SheetHeader({ title, onClose, right }) {
