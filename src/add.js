@@ -4,7 +4,7 @@ import { Icon } from './icons.js';
 import { Chip, Segmented, Sheet, SheetHeader, tight } from './components.js';
 import {
   CATEGORIES, REACTIONS, reactionKey, dateFundBalance, deleteExpense, memberName, me, partner,
-  react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow,
+  react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow, entryNumber,
 } from './store.js';
 import { convert, cachedRates, loadRates, knownCurrencies } from './fx.js';
 import {
@@ -31,6 +31,20 @@ function pressKey(current, key, decimals) {
   if (current === '0' && key === '0') return current;
   if (current === '0') return key;
   return current + key;
+}
+
+/** The currency a new entry starts in: home, unless the latest entry (under 12h old) was abroad. */
+function tripCurrency(s, home) {
+  const latest = s.expenses.filter((e) => !e.deleted_at).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+  if (!latest || latest.original_currency === home) return home;
+  const age = Date.now() - new Date(latest.created_at).getTime();
+  return age < 12 * 60 * 60 * 1000 ? latest.original_currency : home;
+}
+
+/** "¥100 = S$0.81" reads better than "1 JPY = S$0.00810" for small-unit currencies. */
+function rateLine(code, rate, home) {
+  const per = rate < 0.1 ? (rate < 0.001 ? 10000 : 100) : 1;
+  return `${fmt(per, code)} = ${fmt(rate * per, home, { cents: true })}`;
 }
 
 // ---------------------------------------------------------------- currency picker
@@ -95,7 +109,7 @@ export function AddSheet({ editing = null, onClose }) {
   const fundBalance = dateFundBalance(s);
 
   const [amount, setAmount] = useState(editing ? String(editing.original_amount) : '');
-  const [currency, setCurrency] = useState(editing?.original_currency ?? s.prefs.lastCurrency ?? home);
+  const [currency, setCurrency] = useState(() => editing?.original_currency ?? tripCurrency(s, home));
   const [description, setDescription] = useState(editing?.description ?? '');
   const [category, setCategory] = useState(editing?.category ?? null);
   const [date, setDate] = useState(editing?.spent_on ?? todayISO());
@@ -151,7 +165,7 @@ export function AddSheet({ editing = null, onClose }) {
     if (editing) {
       toast('Changes saved');
     } else {
-      toast(`Added ${row.description} · ${fmt(row.home_amount || row.original_amount, row.home_amount ? home : row.original_currency)}`, {
+      toast(`Added ${row.description} · ${row.original_currency !== home ? `${fmt(row.original_amount, row.original_currency)} (≈ ${fmt(row.home_amount, home)})` : fmt(row.home_amount, home)}`, {
         undo: () => undoAdd(row.id),
       });
     }
@@ -178,13 +192,13 @@ export function AddSheet({ editing = null, onClose }) {
       <div class="sheet-scroll add-scroll">
         <div class="amount-wrap">
           <button class="cur-btn" onClick=${() => setPicker(true)} aria-label=${`Currency: ${currency}. Change`}>
-            <span>${symbolFor(currency).trim()}</span><${Icon} name="down" size=${14}/>
+            <span>${symbolFor(currency).trim()}</span>${currency !== home && html`<span class="cur-code">${currency}</span>`}<${Icon} name="down" size=${14}/>
           </button>
           <output class=${`amount ${sizeClass} ${amount === '' ? 'ph' : ''}`} aria-live="polite" aria-label="Amount">${tight(shown)}</output>
         </div>
         ${foreign && html`
           <p class="conv" aria-live="polite">
-            ${conv && num > 0 ? html`<b>≈ ${tight(fmt(override !== '' ? Number(override) || conv.home : conv.home, home))}</b> ${override !== '' ? 'card charge' : 'estimated'} · 1 ${currency} = ${symbolFor(home)}${conv.rate.toPrecision(3)}`
+            ${conv && num > 0 ? html`<b>≈ ${tight(fmt(override !== '' ? Number(override) || conv.home : conv.home, home))}</b> ${override !== '' ? 'card charge' : 'estimated'} · ${tight(rateLine(currency, conv.rate, home))}`
               : num > 0 ? html`No rate saved yet. We'll convert it once you're online.`
               : html`Converted to ${home} at today's rate${rates?.asOf ? '' : ''}.`}
           </p>`}
@@ -265,7 +279,9 @@ export function DetailSheet({ id, onClose, onEdit }) {
   const reactionLabel = (key) => REACTIONS.find((x) => x.key === key)?.label ?? key;
 
   const confirmDelete = () => {
-    if (window.confirm(`Delete “${e.description}”?`)) {
+    const settledMonth = settlementRow(monthKey(e.spent_on));
+    const warn = settledMonth ? ` ${monthLabel(monthKey(e.spent_on), { withYear: false })} is already settled, so this reopens it.` : '';
+    if (window.confirm(`Delete “${e.description}”?${warn}`)) {
       onClose();
       deleteExpense(e.id);
     }
@@ -278,9 +294,10 @@ export function DetailSheet({ id, onClose, onEdit }) {
     <${Sheet} title=${e.description} onClose=${onClose}>
       <${SheetHeader} title="Expense" onClose=${onClose}/>
       <div class="sheet-scroll detail">
+        <p class="detail-no">No.${String(entryNumber(e.id, s)).padStart(3, '0')}</p>
         <h2 class="detail-title">${e.description}</h2>
         <p class="detail-amt">${e.home_amount || !foreign ? tight(fmt(e.home_amount, home, { cents: true })) : 'Rate pending'}</p>
-        ${foreign && html`<p class="detail-orig">${fmt(e.original_amount, e.original_currency, { cents: true })} ${e.fx_rate ? `· 1 ${e.original_currency} = ${symbolFor(home)}${Number(e.fx_rate).toPrecision(3)}` : ''}</p>`}
+        ${foreign && html`<p class="detail-orig">${fmt(e.original_amount, e.original_currency, { cents: true })} ${e.fx_rate ? `· ${rateLine(e.original_currency, Number(e.fx_rate), home)}` : ''}</p>`}
         ${foreign && !e.amount_confirmed && html`
           <p class="notice"><${Icon} name="info" size=${16}/> This amount is an estimate.
             <button class="link" onClick=${() => onEdit(e.id)}>Enter what your card charged</button></p>`}
@@ -290,7 +307,7 @@ export function DetailSheet({ id, onClose, onEdit }) {
           ${dl('Paid by', e.paid_by ? memberName(e.paid_by, s) : 'Joint account')}
           ${dl('Date', dayLabel(e.spent_on))}
           ${e.category && dl('Category', CATEGORIES.find((c) => c.id === e.category)?.label ?? e.category)}
-          ${e.from_fund && dl('Budget', 'Paid from the date fund')}
+          ${e.from_fund && dl('Budget', 'Paid from the treasure chest')}
           ${dl('Added by', `${memberName(e.added_by, s)}${edited ? ` · ${edited}` : ''}`)}
         </dl>
 

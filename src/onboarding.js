@@ -100,7 +100,7 @@ export function Onboarding() {
         ${MODE === 'cloud' && html`<button class="btn btn-secondary btn-block" onClick=${() => { setError(''); setStep('join'); }}>I have an invite code</button>`}
         ${MODE === 'cloud' && html`<button class="link" onClick=${() => { signOut(); setStep('email'); }}>Use a different email</button>`}
       </div>
-      ${MODE === 'demo' && html`<p class="hint center">Demo mode: nothing leaves this phone. Connect Supabase to sync with your partner.</p>`}`,
+      ${MODE === 'demo' && html`<p class="hint center">Everything stays on this phone for now. Syncing with your partner is coming soon.</p>`}`,
 
     create: html`
       <button class="back" onClick=${() => setStep('choose')}><${Icon} name="back" size=${20}/> Back</button>

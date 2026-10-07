@@ -12,6 +12,11 @@ export { PixelJar as Jar } from './sprites.js';
  * Wrap separators so CSS can pull them in. Use on any pixel-face text that shows money.
  */
 export function tight(text) {
+  const label = String(text);
+  return html`<span class="money" role="text" aria-label=${label}><span aria-hidden="true">${tightParts(label)}</span></span>`;
+}
+
+function tightParts(text) {
   return String(text).split(/([.,])/).map((part, i) => (part === '.' || part === ',' ? html`<span key=${i} class="sep">${part}</span>` : part));
 }
 
@@ -73,13 +78,13 @@ export function ExpenseRow({ e, onOpen, home }) {
   const sub = [
     e.paid_by ? `${payer} paid` : 'Joint account',
     foreign ? `${fmt(e.original_amount, e.original_currency)}${e.amount_confirmed ? '' : ' · estimated'}` : null,
-    addedByOther ? `added by ${memberName(e.added_by, s)}` : null,
+    addedByOther ? `added by ${memberName(e.added_by, s).replace(/^You$/, 'you')}` : null,
   ].filter(Boolean).join(' · ');
   return html`
     <button class="row" onClick=${() => onOpen(e.id)}>
       <span class=${`row-icon ${e.from_fund ? 'fund' : ''}`}><${Icon} name=${e.from_fund ? 'chest' : categoryIcon(e.category)} size=${24}/></span>
       <span class="row-main">
-        <span class="row-title"><i class="row-no">No.${no}</i>${e.description}${reactions.length > 0 && html`<span class="row-react" aria-label=${`${reactions.length} ${reactions.length === 1 ? "reaction" : "reactions"}`}>${reactions.map((r, i) => html`<${Icon} key=${i} name=${r} size=${12} class=${`react-${r}`}/>`)}</span>`}</span>
+        <span class="row-title"><i class="row-no">No.${no}</i>${e.description}${e.sample && html`<span class="row-sample">sample</span>`}${reactions.length > 0 && html`<span class="row-react" aria-label=${`${reactions.length} ${reactions.length === 1 ? "reaction" : "reactions"}`}>${reactions.map((r, i) => html`<${Icon} key=${i} name=${r} size=${12} class=${`react-${r}`}/>`)}</span>`}</span>
         <span class="row-sub">${sub}</span>
       </span>
       <span class="row-amt">

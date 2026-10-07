@@ -75,7 +75,7 @@ export function Home({ nav }) {
   const other = partner(s);
   const fund = dateFundBalance(s);
   const monthList = budgetExpenses(liveExpenses(s), key);
-  const recent = liveExpenses(s).slice().sort((a, b) => b.spent_on.localeCompare(a.spent_on) || (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 5);
+  const recent = monthExpenses(liveExpenses(s), key).sort((a, b) => b.spent_on.localeCompare(a.spent_on) || (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 5);
 
   const prevKey = addMonths(key, -1);
   const prevHas = monthExpenses(liveExpenses(s), prevKey).length > 0;
@@ -110,8 +110,8 @@ export function Home({ nav }) {
     prevOpen && { id: 'settle', head: `${monthLabel(prevKey, { withYear: false })} is ready to settle`, body: 'See who gets what back from the joint account.', action: { label: 'Settle up', run: () => nav.go('settle', prevKey) } },
     !other && MODE === 'cloud' && { id: 'invite', head: 'Invite player 2', body: 'Your partner sees every entry the moment you add it.', action: { label: 'Invite', run: () => nav.go('settings') } },
     showInstall && { id: 'install', head: 'Add to your Home Screen', body: html`Tap <${Icon} name="share" size=${12} class="inline-icon"/> then “Add to Home Screen” to open Date Jar like an app.`, action: { label: 'Got it', run: () => setPref('installDismissed', true) } },
-    MODE === 'demo' && { id: 'demo', head: 'Demo mode', body: `Everything stays on this phone.${monthList.some((e) => e.sample) ? ' Some entries are sample data.' : ''}` },
-  ].filter(Boolean);
+    MODE === 'demo' && { id: 'demo', head: 'Demo mode', body: `Everything stays on this phone for now. Syncing with your partner is coming soon.${monthList.some((e) => e.sample) ? ' Entries tagged “sample” are examples.' : ''}` },
+  ].filter(Boolean).sort((a, b) => (b.id === 'settle') - (a.id === 'settle'));
   const pageIdx = Math.min(page, pages.length - 1);
   const msg = pages[pageIdx];
 
@@ -170,7 +170,7 @@ export function Home({ nav }) {
 
       <div class="list-head"><h2 class="list-label">Item log</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history')}>See all</button>`}</div>
       ${recent.length === 0 ? html`
-        <${Empty} icon="jar" title="Nothing logged yet" action=${html`<button class="btn btn-primary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add our first expense</button>`}>
+        <${Empty} icon="jar" title="Nothing logged this month" action=${html`<button class="btn btn-primary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add our first expense</button>`}>
           Dinner, coffee, movie night. Anything you split 50/50 goes here.
         <//>` : html`
         <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open}/>`)}</div>`}
@@ -260,7 +260,7 @@ export function Settle({ nav, arg }) {
   const mine = me(s);
   const ordered = [...st.byMember].sort((a, b) => (a.member.user_id === mine?.user_id ? -1 : 1) - (b.member.user_id === mine?.user_id ? -1 : 1));
   const nothing = st.list.length === 0;
-  const fundNow = dateFundBalance(s);
+  const estimates = st.estimated.filter((e) => e.original_currency !== home).length;
 
   const copyAmount = async (amt) => {
     const ok = await copyText(String(amt));
@@ -291,9 +291,9 @@ export function Settle({ nav, arg }) {
             return html`
               <div key=${b.member.user_id} role="listitem" class=${`duel-side ${b.amount === 0 ? 'zero' : ''}`}>
                 <${Sprite} look=${lookFor(b.member.user_id, s)} tone=${you ? 'you' : 'partner'} mood=${b.amount > 0 ? 'happy' : 'idle'} delay=${you ? 0 : 400}/>
-                <span class="duel-name">${you ? 'You' : b.member.display_name}</span>
+                <span class="duel-name">Joint → ${you ? 'you' : b.member.display_name}</span>
                 <b class="duel-amt">${b.amount === 0 ? '—' : tight(fmt(b.amount, home, { cents: true }))}</b>
-                <span class="duel-sub">${b.amount === 0 ? 'nothing to move' : `${b.count} ${b.count === 1 ? 'payment' : 'payments'}`}</span>
+                <span class="duel-sub">${b.amount === 0 ? 'nothing to move' : `${you ? 'you' : 'they'} paid ${b.count} ${b.count === 1 ? 'time' : 'times'}`}</span>
                 ${b.amount > 0 && html`<button class="btn btn-secondary small" onClick=${() => copyAmount(b.amount.toFixed(currencyDecimals(home)))}><${Icon} name="copy" size=${12}/> Copy</button>`}
               </div>`;
           })}
@@ -305,7 +305,7 @@ export function Settle({ nav, arg }) {
             <div class="transfer-main"><b>${tight(fmt(st.jointTotal, home, { cents: true }))} paid straight from the account</b><span>${st.joint.length} ${st.joint.length === 1 ? 'expense' : 'expenses'} · nothing to move</span></div>
           </div>`}
 
-        ${st.fundSpent > 0 && html`<p class="hint">${fmt(st.fundSpent, home)} came out of the date fund and doesn't count toward the budget.</p>`}
+        ${st.fundSpent > 0 && html`<p class="hint">${fmt(st.fundSpent, home)} came out of the treasure chest and doesn't count toward the budget.</p>`}
 
         ${st.estimated.some((e) => e.original_currency !== home) && html`
           <div class="notice warn">
@@ -332,15 +332,17 @@ export function Settle({ nav, arg }) {
             <button class="btn btn-secondary" onClick=${() => nav.recap(key)}><${Icon} name="sparkle" size=${12}/> See the recap</button>
             <button class="btn btn-quiet" onClick=${() => reopenMonth(key)}>Reopen month</button>
           </div>` : html`
-          ${leftover > 0 && html`<p class="fund-preview"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span> ${fmt(leftover, home)} left over goes into the treasure chest (your date fund).</p>`}
+          ${leftover > 0 && html`<p class="fund-preview"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span> ${isCurrent ? `If the month ended today, ${fmt(leftover, home)} would go into the treasure chest.` : `${fmt(leftover, home)} left over goes into the treasure chest.`}</p>`}
+          <p class="hint center settle-first">First make these transfers in your banking app. Date Jar never moves money.</p>
           <button class="btn btn-primary btn-block" onClick=${() => {
-            if (isCurrent && !window.confirm(`${monthLabel(key, { withYear: false })} isn't over yet. Settle early?`)) return;
+            const asks = [];
+            if (isCurrent) asks.push(`${monthLabel(key, { withYear: false })} isn't over yet.`);
+            if (estimates) asks.push(`${estimates} foreign ${estimates === 1 ? 'charge is' : 'charges are'} still estimated, so amounts may not match your statement.`);
+            if (asks.length && !window.confirm(`${asks.join(' ')} Settle anyway?`)) return;
             settleMonth(key);
-            toast(leftover > 0 ? `Quest complete! +${fmt(leftover, home)} to the treasure chest` : 'Quest complete! Nice teamwork', { tone: 'good' });
           }}>
-            <${Icon} name="check" size=${12}/> Mark ${monthLabel(key, { withYear: false })} as settled
+            <${Icon} name="check" size=${12}/> ${estimates ? `Settle with ${estimates} ${estimates === 1 ? 'estimate' : 'estimates'}` : `Mark ${monthLabel(key, { withYear: false })} as settled`}
           </button>
-          <p class="hint center">Once you've made the transfers in your banking app. Date Jar never moves money.</p>
           <button class="link recap-link" onClick=${() => nav.recap(key)}>Preview the recap</button>`}
       `}
     </section>`;
