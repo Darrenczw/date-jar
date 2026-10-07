@@ -1,6 +1,6 @@
 // Offline shell: app files are cached on first load and refreshed in the background.
 // Bump VERSION whenever you publish a new build so phones pick it up.
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = `date-jar-${VERSION}`;
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon.svg',

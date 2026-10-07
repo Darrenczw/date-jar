@@ -254,7 +254,7 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
 .hp-nums { display: flex; justify-content: flex-end; align-items: baseline; gap: 0.35rem; margin-top: 0.45rem; font-family: var(--font-pixel); }
 .hp-nums b { font-size: 1.85rem; font-weight: 700; line-height: 1; }
 .hp-nums b[data-over="true"] { color: var(--bad-text); }
-.hp-nums span { color: var(--text-2); font-size: 1rem; }
+.hp-nums > span { color: var(--text-2); font-size: 1rem; }
 
 /* ------------------------------------------------------------ text boxes & panels */
 
@@ -298,7 +298,7 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
 .payers { display: flex; margin: 3px; background: var(--panel); box-shadow: var(--px); }
 .payers > div { flex: 1; min-width: 0; padding: 0.65rem 0.75rem; display: flex; flex-direction: column; gap: 0.15rem; }
 .payers > div + div { border-left: 3px solid var(--panel-2); }
-.payers span { color: var(--text-2); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.payers > div > span:not(.avatar) { color: var(--text-2); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .payers b { font-family: var(--font-pixel); font-size: 1.2rem; font-weight: 700; }
 
 .fund-line, .fund-preview { display: flex; align-items: center; gap: 0.75rem; margin: 1.1rem 3px 0.2rem; }
@@ -530,10 +530,10 @@ dialog.sheet::backdrop { background: rgb(29 27 51 / 0.6); }
 .transfer { display: flex; align-items: center; gap: 0.85rem; margin: 3px 3px 0.6rem; padding: 0.8rem 0.9rem; background: var(--panel-2); box-shadow: var(--px2); }
 .transfer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .transfer-main b { font-family: var(--font-pixel); font-size: 1.05rem; }
-.transfer-main span { color: var(--text-2); font-size: 0.86rem; }
+.transfer-main > span { color: var(--text-2); font-size: 0.86rem; }
 .settled-card { display: flex; align-items: center; gap: 0.9rem; margin: 1.3rem 3px 0; padding: 0.9rem 1rem; background: var(--leaf); color: #2e2a4f; box-shadow: var(--px); }
 .settled-card b { display: block; font-family: var(--font-pixel); font-size: 1.4rem; }
-.settled-card span:last-child { font-size: 0.9rem; }
+.settled-card div > span:last-child { font-size: 0.9rem; }
 .settled-stars { display: flex; align-items: flex-start; color: #fff4dc; animation: blink 1.2s steps(2) infinite; }
 .settle-actions { display: flex; gap: 0.5rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap; }
 .settle .btn-block { margin-top: 0.4rem; }
@@ -699,3 +699,20 @@ dialog.sheet::backdrop { background: rgb(29 27 51 / 0.6); }
 /* Errors are messages too: a text box with the bad-text head colour. */
 .error { background: var(--panel); color: var(--bad-text); box-shadow: var(--px); outline: 2px solid var(--panel-2); outline-offset: -8px; padding: 0.85rem 1rem; }
 @media (prefers-color-scheme: dark) { .error { color: var(--bad-text); } }
+
+/* ------------------------------------------------------------ critique fixes (8 Oct) */
+
+/* Badges keep dark ink in both themes; `.payers span` must not repaint the initials. */
+.avatar, .payers .avatar { color: #2e2a4f; }
+.avatar-joint, .payers .avatar-joint { color: var(--text); }
+/* Pace marker stays visible on the night ground. */
+@media (prefers-color-scheme: dark) { .hp-pace { border-top-color: #fff4dc; } }
+/* Money reads as one number; its separator spans stay inline. */
+.money { white-space: nowrap; }
+/* Foreign currency shows its code beside the symbol so ¥ is never a surprise. */
+.cur-code { font-size: 0.8rem; margin-left: 0.15rem; color: var(--text-2); }
+.row-sample { margin-left: 0.4rem; padding: 0 5px; font-family: var(--font-pixel); font-size: 0.7rem; font-weight: 400; color: var(--text-2); box-shadow: var(--px2); vertical-align: 1px; }
+.detail-no { font-family: var(--font-pixel); color: var(--text-2); font-size: 0.9rem; margin-top: 0.5rem; }
+.settle-first { margin: 1rem 3px 0.6rem; }
+/* Money spans always take their parent's type. */
+.money, .money > span, .money .sep { font: inherit; color: inherit; }
