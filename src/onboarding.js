@@ -7,6 +7,12 @@ import { CurrencyPicker } from './add.js';
 import { MODE, createCouple, joinCouple, sendCode, verifyCode, useStore, signOut } from './store.js';
 import { currencyName, symbolFor } from './money.js';
 
+// Names used when the couple leaves the name fields blank.
+const DEFAULT_ME = 'Darren';
+const DEFAULT_PARTNER = 'Ji Won';
+// Names are proper nouns: no autocorrect or spellcheck squiggles.
+const NAME_INPUT = { autocorrect: 'off', autocapitalize: 'words', spellcheck: false };
+
 function regionCurrency() {
   const map = { SG: 'SGD', MY: 'MYR', US: 'USD', GB: 'GBP', AU: 'AUD', NZ: 'NZD', JP: 'JPY', HK: 'HKD', CA: 'CAD', ID: 'IDR', TH: 'THB', PH: 'PHP', IN: 'INR', KR: 'KRW', TW: 'TWD', CN: 'CNY' };
   const region = (navigator.language || 'en-SG').split('-')[1]?.toUpperCase();
@@ -102,11 +108,11 @@ export function Onboarding() {
       <form class="form" onSubmit=${(e) => {
         e.preventDefault();
         run(async () => {
-          await createCouple({ myName, partnerName, currency, budget: Number(budget) || 1000, sample });
+          await createCouple({ myName: myName.trim() || DEFAULT_ME, partnerName: partnerName.trim() || DEFAULT_PARTNER, currency, budget: Number(budget) || 1000, sample });
         });
       }}>
-        <${Field} label="Your name"><input required autocomplete="given-name" value=${myName} onInput=${(e) => setMyName(e.target.value)} maxlength="40" placeholder="Darren"/><//>
-        ${MODE === 'demo' && html`<${Field} label="Your partner's name"><input value=${partnerName} onInput=${(e) => setPartnerName(e.target.value)} maxlength="40" placeholder="Their name"/><//>`}
+        <${Field} label="Your name"><input autocomplete="given-name" ...${NAME_INPUT} value=${myName} onInput=${(e) => setMyName(e.target.value)} maxlength="40" placeholder=${DEFAULT_ME}/><//>
+        ${MODE === 'demo' && html`<${Field} label="Your partner's name"><input autocomplete="off" ...${NAME_INPUT} value=${partnerName} onInput=${(e) => setPartnerName(e.target.value)} maxlength="40" placeholder=${DEFAULT_PARTNER}/><//>`}
         <div class="two-col">
           <${Field} label="Home currency">
             <button type="button" class="select-btn" onClick=${() => setPicker(true)}><b>${currency}</b> <span>${currencyName(currency)}</span><${Icon} name="down" size=${16}/></button>
@@ -118,18 +124,18 @@ export function Onboarding() {
         ${MODE === 'demo' && html`
           <label class="check"><input type="checkbox" checked=${sample} onChange=${(e) => setSample(e.target.checked)}/><span>Fill with sample entries so I can look around<small>Labelled as sample data. Erase anytime in Settings.</small></span></label>`}
         ${error && html`<p class="error" role="alert">${error}</p>`}
-        <button class="btn btn-primary btn-block" disabled=${busy || !myName.trim()}>${busy ? 'Creating…' : 'Create the jar'}</button>
+        <button class="btn btn-primary btn-block" disabled=${busy}>${busy ? 'Creating…' : 'Create the jar'}</button>
       </form>
       ${picker && html`<${CurrencyPicker} value=${currency} home=${currency} onPick=${(c) => { setCurrency(c); setPicker(false); }} onClose=${() => setPicker(false)}/>`}`,
 
     join: html`
       <button class="back" onClick=${() => setStep('choose')}><${Icon} name="back" size=${20}/> Back</button>
       <div class="step-head"><h1>Join your partner's jar</h1><p>Ask them for the 6-character invite code from Settings.</p></div>
-      <form class="form" onSubmit=${(e) => { e.preventDefault(); run(() => joinCouple({ code: joinCode, myName })); }}>
+      <form class="form" onSubmit=${(e) => { e.preventDefault(); run(() => joinCouple({ code: joinCode, myName: myName.trim() || DEFAULT_PARTNER })); }}>
         <${Field} label="Invite code"><input class="code-input" autocapitalize="characters" autocomplete="off" maxlength="6" placeholder="ABC123" value=${joinCode} onInput=${(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}/><//>
-        <${Field} label="Your name"><input required autocomplete="given-name" value=${myName} onInput=${(e) => setMyName(e.target.value)} maxlength="40"/><//>
+        <${Field} label="Your name"><input autocomplete="given-name" ...${NAME_INPUT} value=${myName} onInput=${(e) => setMyName(e.target.value)} maxlength="40" placeholder=${DEFAULT_PARTNER}/><//>
         ${error && html`<p class="error" role="alert">${error}</p>`}
-        <button class="btn btn-primary btn-block" disabled=${busy || joinCode.length < 6 || !myName.trim()}>${busy ? 'Joining…' : 'Join the jar'}</button>
+        <button class="btn btn-primary btn-block" disabled=${busy || joinCode.length < 6}>${busy ? 'Joining…' : 'Join the jar'}</button>
       </form>`,
   }[step];
 
