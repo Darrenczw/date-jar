@@ -8,7 +8,7 @@ import { CharArt } from './avatar.js';
 import {
   CATEGORIES, MODE, createInvite, dateFundBalance, defaultSettleMonth, leaveCouple, liveExpenses, me, memberName,
   monthSpent, partner, reopenMonth, setPref, settleMonth, settlementRow, signOut, toast, updateCouple,
-  updateMemberName, useStore, switchDemoUser, flush, friendlyError,
+  updateMemberName, useStore, switchDemoUser, flush, friendlyError, onlySamples, changeHomeCurrency, removeSamples,
 } from './store.js';
 import {
   addMonths, budgetExpenses, currentMonthKey, dayLabel, fmt, monthExpenses, monthKey, monthLabel, pace,
@@ -126,24 +126,32 @@ export function Home({ nav }) {
     over: 'Over budget',
   }[p.status];
 
+  // The one number to act on today. The budget left is already on the bar above, so it is not repeated here.
+  let big = null;
   let detail;
   if (p.status === 'empty') detail = 'Nothing spent yet. Add your first date.';
   else if (p.status === 'over') detail = `${fmt(spent - budget, home)} over our ${fmt(budget, home)} budget. That's okay.`;
-  else if (p.daysLeft > 0) detail = `We can spend about ${fmt(Math.floor(p.perDay), home)} a day.`;
+  else if (p.daysLeft > 0) { big = `About ${fmt(Math.floor(p.perDay), home)} a day`; detail = `for us, for the rest of ${monthLabel(key, { withYear: false })}.`; }
   else detail = `${fmt(p.remaining, home)} left this month.`;
 
-  const summary = `${fmt(Math.max(0, budget - spent), home)} of ${fmt(budget, home)} budget left. ${headline.replace(/[!.]$/, '')}. ${detail}`;
+  const summary = `${fmt(Math.max(0, budget - spent), home)} of ${fmt(budget, home)} budget left. ${headline.replace(/[!.]$/, '')}. ${big ? `${big} ${detail}` : detail}`;
   const showInstall = isIOS && !standalone && !s.prefs.installDismissed;
   const waiting = s.outbox.length;
 
+  // A first visit without a character of your own: a welcome (for the partner who joined) or a nudge to make one.
+  const joined = s.members.findIndex((m) => m.user_id === mine?.user_id) > 0;
+  const welcome = mine && !mine.avatar && !s.prefs.welcomed && (joined
+    ? { head: `Welcome, ${mine.display_name}!`, body: `This jar is shared with ${other?.display_name ?? 'your partner'}. You both add what you spend on dates. First, make your character.` }
+    : { head: 'Make your character', body: 'Pick hair, clothes and a hat. Your partner sees it here.' });
   // Every message on Home pages through the one RPG text box (▼ = next message).
   const pages = [
-    { id: 'status', tone: `st-${p.status}`, head: headline, body: html`${detail} ${spent > 0 ? html`<span class="tb-spent">Spent so far: ${fmt(spent, home)}.</span>` : ''}` },
+    { id: 'status', tone: `st-${p.status}`, head: headline, big, body: detail },
+    welcome && { id: 'welcome', head: welcome.head, body: welcome.body, action: { label: 'Make my character', run: () => { setPref('welcomed', true); nav.go('settings', 'character'); } } },
     prevOpen && { id: 'settle', head: `Time to settle ${monthLabel(prevKey, { withYear: false })}`, body: 'Pay each other back from the joint account.', action: { label: 'Settle up', run: () => nav.go('settle', prevKey) } },
     !other && MODE === 'cloud' && { id: 'invite', head: 'Invite your partner', body: 'They see each expense right away.', action: { label: 'Invite', run: () => nav.go('settings') } },
     showInstall && { id: 'install', head: 'Add to your Home Screen', body: html`Tap <${Icon} name="share" size=${12} class="inline-icon"/>, then “Add to Home Screen”. Date Jar opens like an app.`, action: { label: 'Got it', run: () => setPref('installDismissed', true) } },
     MODE === 'demo' && { id: 'demo', head: 'Demo mode', body: `Your data stays on this phone only. Sharing with your partner comes later.${monthList.some((e) => e.sample) ? ' Items marked “sample” are examples.' : ''}` },
-  ].filter(Boolean).sort((a, b) => (b.id === 'settle') - (a.id === 'settle'));
+  ].filter(Boolean).sort((a, b) => (joined ? (b.id === 'welcome') - (a.id === 'welcome') : 0));
   const pageIdx = Math.min(page, pages.length - 1);
   const msg = pages[pageIdx];
 
@@ -177,15 +185,16 @@ export function Home({ nav }) {
 
       <div class=${`textbox paged ${msg.tone ?? ''}`} aria-live="polite">
         <p class="tb-head">${msg.head}</p>
+        ${msg.big && html`<p class="tb-big">${tight(msg.big)}</p>`}
         <p>${msg.body}</p>
         ${msg.action && html`<button class="tb-action" onClick=${msg.action.run}><i class="cursor" aria-hidden="true"></i>${msg.action.label}</button>`}
         ${pages.length > 1 && html`
           <button class="tb-next" onClick=${() => setPage((pageIdx + 1) % pages.length)} aria-label=${`Next message, ${pageIdx + 1} of ${pages.length}`}>
-            <span class="tb-count">${pageIdx + 1}/${pages.length}</span><i class="more" aria-hidden="true"></i>
+            <span>Next</span><span class="tb-count">${pageIdx + 1}/${pages.length}</span><i class="more" aria-hidden="true"></i>
           </button>`}
       </div>
 
-      <h2 class="list-label">Who paid this month</h2>
+      ${monthList.length > 0 && html`<h2 class="list-label">Who paid this month</h2>
       <div class="payers" role="list" aria-label="Who paid this month">
         ${[mine, other].filter(Boolean).map((m) => html`
           <div key=${m.user_id} role="listitem">
@@ -194,9 +203,9 @@ export function Home({ nav }) {
           </div>`)}
         <div role="listitem">
           <span class="avatar avatar-joint" style="--size:22px"><${Icon} name="joint" size=${12}/></span>
-          <span>Joint</span><b>${tight(fmt(jointTotal, home, { cents: true }))}</b>
+          <span>Joint account</span><b>${tight(fmt(jointTotal, home, { cents: true }))}</b>
         </div>
-      </div>
+      </div>`}
 
       ${fund > 0 && html`
         <p class="fund-line"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span><span>Date fund <b>${tight(fmt(fund, home))}</b><small>Saved from past months. For a special date!</small></span></p>`}
@@ -204,7 +213,7 @@ export function Home({ nav }) {
       <div class="list-head"><h2 class="list-label">Recent expenses</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history')}>See all</button>`}</div>
       ${recent.length === 0 ? html`
         <${Empty} icon="jar" title="No expenses yet this month" action=${html`<button class="btn btn-primary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add first expense</button>`}>
-          Add what you spend on dates: dinner, coffee, movies. You split it 50/50.
+          Add what you spend on dates: dinner, coffee, movies. At month end, each of you gets paid back.
         <//>` : html`
         <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open}/>`)}</div>`}
 
@@ -278,6 +287,42 @@ export function History({ nav }) {
 
 // ================================================================= SETTLE
 
+/** Before money is marked as moved: list each transfer so both of you can check it in your bank app. */
+function SettleReview({ monthName, early, transfers, estimates, home, onCopy, onConfirm, onClose }) {
+  const s = useStore();
+  const mine = me(s);
+  return html`
+    <${Sheet} title=${`Settle ${monthName}`} onClose=${onClose}>
+      <${SheetHeader} title=${`Settle ${monthName}`} onClose=${onClose}/>
+      <div class="sheet-scroll review">
+        <p class="review-step"><b>1</b> Move the money in your bank app, from the joint account:</p>
+        ${transfers.length ? html`
+          <div class="review-list">
+            ${transfers.map((t) => html`
+              <div key=${t.user_id} class="review-row">
+                <i class="pip" style=${partyTone(t.user_id, s).style} aria-hidden="true"></i>
+                <span>${tight(`${fmt(t.amount, home, { cents: true })} to ${t.user_id === mine?.user_id ? 'you' : t.name}`)}</span>
+                <button class="btn btn-secondary small" onClick=${() => onCopy(t.amount)}><${Icon} name="copy" size=${12}/> Copy</button>
+              </div>`)}
+          </div>` : html`<p class="hint">Nobody needs to be paid back this month.</p>`}
+        <p class="review-step"><b>2</b> When the money has moved, mark the month as settled.</p>
+        ${(early || estimates > 0) && html`
+          <div class="notice warn">
+            <${Icon} name="alert" size=${18}/>
+            <div>
+              ${early && html`<p>${monthName} is not over yet. A new expense will reopen it.</p>`}
+              ${estimates > 0 && html`<p>${estimates === 1 ? '1 amount is still an estimate. It may not match your card.' : `${estimates} amounts are still estimates. They may not match your card.`}</p>`}
+            </div>
+          </div>`}
+        <p class="hint">Date Jar does not move money.</p>
+      </div>
+      <div class="add-foot btn-col">
+        <button class="btn btn-primary btn-block" onClick=${onConfirm}><${Icon} name="check" size=${12}/> Money moved. Mark as settled</button>
+        <button class="btn btn-quiet btn-block" onClick=${onClose}>Not yet</button>
+      </div>
+    <//>`;
+}
+
 export function Settle({ nav, arg }) {
   const s = useStore();
   const home = s.couple.home_currency;
@@ -286,67 +331,120 @@ export function Settle({ nav, arg }) {
   // The month just settled on this screen: both characters cheer and the quest card plays its moment once.
   const [fresh, setFresh] = useState(null);
   useEffect(() => { if (!fresh) return undefined; const t = setTimeout(() => setFresh(null), 2800); return () => clearTimeout(t); }, [fresh]);
+  const [reviewing, setReviewing] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
+  useEffect(() => setConfirmReopen(false), [key]);
   const cheering = fresh === key;
 
   const st = useMemo(() => settlementFor(liveExpenses(s), s.members, key), [s.expenses, s.members, key]);
   const settled = settlementRow(key, s);
-  const budget = Number(s.couple.monthly_budget);
-  const over = st.budgetSpent > budget;
-  const leftover = roundTo(Math.max(0, budget - st.budgetSpent));
+  const snap = settled?.snapshot;
+  const budget = Number(snap?.budget ?? s.couple.monthly_budget);
+  const spentInBudget = snap ? Number(snap.spent) : st.budgetSpent;
+  const over = spentInBudget > budget;
+  const leftover = roundTo(Math.max(0, budget - spentInBudget));
   const isCurrent = key === currentMonthKey();
+  const daysLeft = isCurrent ? pace({ spent: st.budgetSpent, budget, key }).daysLeft : 0;
   const mine = me(s);
-  const ordered = [...st.byMember].sort((a, b) => (a.member.user_id === mine?.user_id ? -1 : 1) - (b.member.user_id === mine?.user_id ? -1 : 1));
-  const nothing = st.list.length === 0;
+  const youFirst = (a, b) => (a.member.user_id === mine?.user_id ? -1 : 1) - (b.member.user_id === mine?.user_id ? -1 : 1);
+  // A settled month shows what was actually paid back (the snapshot), not today's live totals.
+  const sides = snap
+    ? s.members.map((m) => {
+      const row = snap.byMember.find((b) => b.user_id === m.user_id);
+      return { member: m, amount: Number(row?.amount ?? 0), count: st.byMember.find((b) => b.member.user_id === m.user_id)?.count ?? 0 };
+    })
+    : st.byMember;
+  const ordered = [...sides].sort(youFirst);
+  const nothing = st.list.length === 0 && !settled;
   const estimates = st.estimated.filter((e) => e.original_currency !== home).length;
+  const jointTotal = snap ? Number(snap.joint ?? 0) : st.jointTotal;
+  const monthName = monthLabel(key, { withYear: false });
+  const transfers = st.byMember.filter((b) => b.amount > 0).sort(youFirst)
+    .map((b) => ({ user_id: b.member.user_id, name: b.member.display_name, amount: b.amount }));
 
   const copyAmount = async (amt) => {
-    const ok = await copyText(String(amt));
-    toast(ok ? `Copied ${amt}` : 'Can’t copy. Press and hold the amount.');
+    const text = Number(amt).toFixed(currencyDecimals(home));
+    const ok = await copyText(text);
+    toast(ok ? `Copied ${text}` : 'Can’t copy. Press and hold the amount.');
   };
-  const monthName = monthLabel(key, { withYear: false });
+  const confirmSettle = () => {
+    setReviewing(false);
+    settleMonth(key);
+    setFresh(key);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  };
+  const state = settled ? 'done' : isCurrent ? 'progress' : 'due';
+  const settledOn = settled?.settled_at ? shortDate(settled.settled_at.slice(0, 10)) : '';
+  const nameOf = (b, you) => (you ? 'You' : b.member.display_name);
 
   return html`
     <section class="screen settle">
       <${MonthNav} label=${monthLabel(key)} onPrev=${() => setKey(addMonths(key, -1))} onNext=${() => setKey(addMonths(key, 1))}
-        canNext=${key < currentMonthKey()} sub=${isCurrent ? 'Month not over yet' : settled ? 'Settled' : 'Ready to settle'}/>
+        canNext=${key < currentMonthKey()} sub=${{ done: 'Settled', progress: 'Month not over yet', due: 'Ready to settle' }[state]}/>
 
       ${nothing ? html`
         <${Empty} icon="settle" title="Nothing to settle">No expenses in ${monthName}.<//>` : html`
-        <${TextBox} class=${over ? 'st-over' : 'st-on-track'} more=${false}>
-          <p class="tb-head">${tight(over ? `${fmt(st.budgetSpent - budget, home)} over budget` : `${fmt(leftover, home)} left in budget`)}</p>
-          <p>Spent ${fmt(st.budgetSpent, home)} of ${fmt(budget, home)}.<br/>Settle up: pay each of you back from the joint account.</p>
-        <//>
 
-        <div class="duel" role="list" aria-label="Pay back from the joint account">
+        ${state === 'done' && html`
+          <div class=${`settled-card ${cheering ? 'fresh' : ''}`} role="status">
+            ${cheering && html`<${Confetti} count=${30}/>`}
+            <span class="settled-stars" aria-hidden="true"><${Icon} name="sparkle" size=${24}/><${Icon} name="sparkle" size=${12}/></span>
+            <div class="settled-main">
+              <b>Quest complete!</b>
+              <span>${monthName} is settled. Paid back on ${settledOn} by ${memberName(settled.settled_by, s).replace(/^You$/, 'you')}.</span>
+            </div>
+            ${settled.fund_contribution > 0 && html`
+              <div class="settled-fund">
+                <span class="settled-chest">${cheering && html`<${CoinRain} count=${10}/>`}<span class=${`fund-icon ${cheering ? 'chest-bounce' : ''}`}><${Icon} name="chest" size=${24}/></span></span>
+                <span><b class="settled-plus">+<${CountUp} value=${settled.fund_contribution} format=${(v) => fmt(v, home)} active=${cheering}/></b>to date fund</span>
+              </div>`}
+          </div>`}
+
+        ${state === 'progress' && html`
+          <${TextBox} class="st-on-track" more=${false}>
+            <p class="tb-head">${daysLeft <= 0 ? `Last day of ${monthName}` : daysLeft === 1 ? `${monthName} ends tomorrow` : `${monthName} ends in ${daysLeft} days`}</p>
+            <p>Spent ${fmt(st.budgetSpent, home)} of ${fmt(budget, home)}.<br/>At month end, each of you gets paid back from the joint account.</p>
+          <//>`}
+
+        ${state === 'due' && html`
+          <${TextBox} class=${over ? 'st-over' : 'st-on-track'} more=${false}>
+            <p class="tb-head">Time to settle ${monthName}</p>
+            <p>${over ? `${fmt(spentInBudget - budget, home)} over budget.` : `${fmt(leftover, home)} left in budget.`}<br/>Pay each of you back from the joint account.</p>
+          <//>`}
+
+        <div class="duel" role="list" aria-label=${state === 'done' ? 'Paid back from the joint account' : state === 'progress' ? 'Paid so far' : 'Pay back from the joint account'}>
           ${[ordered[0], null, ordered[1]].map((b, i) => {
             if (i === 1) {
               return html`<div key="mid" class="duel-mid" aria-hidden="true">
-                <${Jar} size="sm" left=${budget > 0 ? Math.max(0, (budget - st.budgetSpent) / budget) : 0} summary=""/>
+                <${Jar} size="sm" left=${budget > 0 ? Math.max(0, (budget - spentInBudget) / budget) : 0} summary=""/>
               </div>`;
             }
             if (!b) return html`<div key="ghost" class="duel-side ghost"><div class="sprite sprite-ghost"></div><b>Player 2</b><span>Not joined yet</span></div>`;
             const you = b.member.user_id === mine?.user_id;
+            const label = { done: you ? 'You got' : `${b.member.display_name} got`, progress: `${nameOf(b, you)} paid`, due: you ? 'You get' : `${b.member.display_name} gets` }[state];
+            const sub = b.amount === 0 ? (state === 'progress' ? 'Nothing yet' : 'Nothing to pay')
+              : state === 'done' ? `Paid back on ${settledOn}` : `${plural(b.count, 'expense', 'expenses')}${state === 'progress' ? ' so far' : ''}`;
             return html`
               <div key=${b.member.user_id} role="listitem" class=${`duel-side party ${b.amount === 0 ? 'zero' : ''}`} style=${partyTone(b.member.user_id, s).style}>
                 <${Sprite} avatar=${avatarFor(b.member.user_id, s)} mood=${b.amount > 0 || cheering ? 'happy' : 'idle'} delay=${you ? 0 : 400}
                   action=${cheering ? 'cheer' : ''} actionKey=${cheering ? 1 : 0}/>
-                <span class="duel-name">${you ? 'You get' : `${b.member.display_name} gets`}</span>
+                <span class="duel-name">${label}</span>
                 <b class="duel-amt">${b.amount === 0 ? '—' : tight(fmt(b.amount, home, { cents: true }))}</b>
-                <span class="duel-sub">${b.amount === 0 ? 'Nothing to pay' : `Paid ${plural(b.count, 'expense', 'expenses')}`}</span>
-                ${b.amount > 0 && html`<button class="btn btn-secondary small" onClick=${() => copyAmount(b.amount.toFixed(currencyDecimals(home)))}><${Icon} name="copy" size=${12}/> Copy</button>`}
+                <span class="duel-sub">${sub}</span>
+                ${state === 'due' && b.amount > 0 && html`<button class="btn btn-secondary small" onClick=${() => copyAmount(b.amount)}><${Icon} name="copy" size=${12}/> Copy</button>`}
               </div>`;
           })}
         </div>
 
-        ${st.joint.length > 0 && html`
+        ${jointTotal > 0 && html`
           <div class="transfer zero">
             <span class="avatar avatar-joint" style="--size:40px"><${Icon} name="joint" size=${24}/></span>
-            <div class="transfer-main"><b>${tight(`Joint account paid ${fmt(st.jointTotal, home, { cents: true })}`)}</b><span>${plural(st.joint.length, 'expense', 'expenses')} · Nothing to pay back</span></div>
+            <div class="transfer-main"><b>${tight(`Joint account paid ${fmt(jointTotal, home, { cents: true })}`)}</b><span>${st.joint.length ? `${plural(st.joint.length, 'expense', 'expenses')} · ` : ''}Nothing to pay back</span></div>
           </div>`}
 
         ${st.fundSpent > 0 && html`<p class="hint">${fmt(st.fundSpent, home)} came from the date fund. Not counted in the budget.</p>`}
 
-        ${estimates > 0 && html`
+        ${state !== 'done' && estimates > 0 && html`
           <div class="notice warn">
             <${Icon} name="globe" size=${18}/>
             <div>
@@ -354,43 +452,45 @@ export function Settle({ nav, arg }) {
               <p>Check your card. Add the real amount.</p>
               <div class="est-list">
                 ${st.estimated.filter((e) => e.original_currency !== home).map((e) => html`
-                  <button key=${e.id} class="link" onClick=${() => nav.open(e.id)}>${e.description} · ${fmt(e.original_amount, e.original_currency)}</button>`)}
+                  <button key=${e.id} class="link est-link" onClick=${() => nav.open(e.id)}><span class="content">${e.description}</span> · ${tight(fmt(e.original_amount, e.original_currency))}</button>`)}
               </div>
             </div>
           </div>`}
 
-        ${settled ? html`
-          <div class=${`settled-card ${cheering ? 'fresh' : ''}`} role="status">
-            ${cheering && html`<${Confetti} count=${30}/>`}
-            <span class="settled-stars" aria-hidden="true"><${Icon} name="sparkle" size=${24}/><${Icon} name="sparkle" size=${12}/></span>
-            <div class="settled-main">
-              <b>Quest complete!</b>
-              <span>Settled by ${memberName(settled.settled_by, s).replace(/^You$/, 'you')} on ${shortDate(settled.settled_at.slice(0, 10))}</span>
-            </div>
-            ${settled.fund_contribution > 0 && html`
-              <div class="settled-fund">
-                <span class="settled-chest">${cheering && html`<${CoinRain} count=${10}/>`}<span class=${`fund-icon ${cheering ? 'chest-bounce' : ''}`}><${Icon} name="chest" size=${24}/></span></span>
-                <span><b class="settled-plus">+<${CountUp} value=${settled.fund_contribution} format=${(v) => fmt(v, home)} active=${cheering}/></b>to date fund</span>
-              </div>`}
-          </div>
+        ${state === 'done' && html`
+          ${confirmReopen ? html`
+            <div class="notice warn reopen-check" role="alert">
+              <${Icon} name="alert" size=${18}/>
+              <div>
+                <b>Reopen ${monthName}?</b>
+                <p>${settled.fund_contribution > 0 ? `The ${fmt(settled.fund_contribution, home)} goes back out of the date fund. ` : ''}Settle it again after you change it.</p>
+                <div class="btn-row">
+                  <button class="btn btn-secondary small" onClick=${() => { reopenMonth(key); setConfirmReopen(false); }}>Reopen month</button>
+                  <button class="btn btn-quiet small" onClick=${() => setConfirmReopen(false)}>Keep settled</button>
+                </div>
+              </div>
+            </div>` : html`
+            <div class="settle-actions">
+              <button class="btn btn-secondary" onClick=${() => nav.recap(key)}><${Icon} name="sparkle" size=${12}/> See recap</button>
+              <button class="btn btn-quiet" onClick=${() => setConfirmReopen(true)}>Reopen month</button>
+            </div>`}`}
+
+        ${state === 'progress' && html`
+          ${leftover > 0 && html`<p class="fund-preview"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span> Left so far: ${fmt(leftover, home)}. At month end, it goes to the date fund.</p>`}
           <div class="settle-actions">
             <button class="btn btn-secondary" onClick=${() => nav.recap(key)}><${Icon} name="sparkle" size=${12}/> See recap</button>
-            <button class="btn btn-quiet" onClick=${() => reopenMonth(key)}>Reopen month</button>
-          </div>` : html`
-          ${leftover > 0 && html`<p class="fund-preview"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span> ${isCurrent ? `Left so far: ${fmt(leftover, home)}. At month end, it goes to the date fund.` : `Left over: ${fmt(leftover, home)}. It goes to the date fund.`}</p>`}
-          <p class="hint center settle-first">First, move the money in your bank app. Then tap below. Date Jar does not move money.</p>
-          <button class="btn btn-primary btn-block" onClick=${() => {
-            const asks = [];
-            if (isCurrent) asks.push(`${monthName} is not over yet.`);
-            if (estimates) asks.push(estimates === 1 ? '1 amount is still an estimate.' : `${estimates} amounts are still estimates.`);
-            if (asks.length && !window.confirm(`${asks.join(' ')} Settle anyway?`)) return;
-            settleMonth(key);
-            setFresh(key);
-          }}>
-            <${Icon} name="check" size=${12}/> Mark ${monthName} as settled
+            <button class="btn btn-quiet" onClick=${() => setReviewing(true)}>Settle early</button>
+          </div>`}
+
+        ${state === 'due' && html`
+          ${leftover > 0 && html`<p class="fund-preview"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span> Left over: ${fmt(leftover, home)}. It goes to the date fund.</p>`}
+          <button class="btn btn-primary btn-block" onClick=${() => setReviewing(true)}>
+            <${Icon} name="check" size=${12}/> Settle ${monthName}
           </button>
           <button class="link recap-link" onClick=${() => nav.recap(key)}>See recap</button>`}
       `}
+      ${reviewing && html`<${SettleReview} monthName=${monthName} early=${isCurrent} transfers=${transfers} estimates=${estimates} home=${home}
+        onCopy=${copyAmount} onConfirm=${() => closeSheet(confirmSettle)} onClose=${() => closeSheet(() => setReviewing(false))}/>`}
     </section>`;
 }
 
@@ -405,8 +505,10 @@ function recapStats(s, key) {
   const byCat = {};
   budgeted.forEach((e) => { byCat[e.category ?? 'other'] = (byCat[e.category ?? 'other'] ?? 0) + e.home_amount; });
   const topCat = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0];
+  // Groceries and home shopping are shared costs, not dates: leave them out of the date-night cards.
+  const dates = list.filter((e) => !['groceries', 'home'].includes(e.category));
   const byDesc = {};
-  list.forEach((e) => {
+  dates.forEach((e) => {
     const k = e.description.trim().toLowerCase();
     byDesc[k] = byDesc[k] ?? { name: e.description.trim(), n: 0, total: 0 };
     byDesc[k].n += 1;
@@ -414,7 +516,7 @@ function recapStats(s, key) {
   });
   const topPlace = Object.values(byDesc).sort((a, b) => b.n - a.n || b.total - a.total)[0];
   const byDay = {};
-  list.forEach((e) => { byDay[e.spent_on] = (byDay[e.spent_on] ?? 0) + e.home_amount; });
+  dates.forEach((e) => { byDay[e.spent_on] = (byDay[e.spent_on] ?? 0) + e.home_amount; });
   const topDay = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
   const foreign = [...new Set(list.filter((e) => e.original_currency !== home).map((e) => e.original_currency))];
   const biggest = list.slice().sort((a, b) => b.home_amount - a.home_amount)[0];
@@ -483,7 +585,7 @@ export function Recap({ month, onClose }) {
   }
   if (r.topPlace) cards.push({ kind: 'stamp', tone: 'leaf', title: r.topPlace.n > 1 ? 'Our favourite' : 'Top expense', big: r.topPlace.name,
     body: r.topPlace.n > 1 ? `${r.topPlace.n} times. ${fmt(r.topPlace.total, r.home)} in total.` : `${fmt(r.topPlace.total, r.home)}. Money well spent!` });
-  if (r.topDay) cards.push({ kind: 'day', tone: 'indigo', title: 'Biggest spending day', big: shortDate(r.topDay[0]), value: r.topDay[1], format: money,
+  if (r.topDay) cards.push({ kind: 'day', tone: 'indigo', title: 'Biggest day out', big: shortDate(r.topDay[0]), value: r.topDay[1], format: money,
     body: r.biggest ? `Biggest item: ${r.biggest.description}.` : 'What a day!' });
   cards.push({ kind: 'hearts', tone: 'cream', title: 'Days out together', value: r.days, format: (v) => `${Math.round(v)} ${Math.round(v) === 1 ? 'day' : 'days'}`,
     hearts: Math.min(r.days, 31), body: `${r.list.length} ${r.list.length === 1 ? 'expense' : 'expenses'} in ${label}.` });
@@ -570,7 +672,7 @@ export function Recap({ month, onClose }) {
             </article>`)}
         </div>
         <div class="recap-nav">
-          <button class="btn btn-secondary small" onClick=${() => step(-1)} disabled=${i === 0} aria-label="Previous card"><${Icon} name="back" size=${12}/></button>
+          <button class="btn btn-secondary small" onClick=${() => step(-1)} disabled=${i === 0} ><${Icon} name="back" size=${12}/> Back</button>
           <button class="btn btn-secondary small" onClick=${() => (i === cards.length - 1 ? onClose() : step(1))}>${i === cards.length - 1 ? 'Done' : 'Next'}</button>
         </div>
       </div>
@@ -669,7 +771,7 @@ function InviteSheet({ onClose }) {
     <//>`;
 }
 
-export function Settings({ nav }) {
+export function Settings({ nav, arg }) {
   const s = useStore();
   const home = s.couple.home_currency;
   const mine = me(s);
@@ -678,8 +780,10 @@ export function Settings({ nav }) {
   const [budget, setBudget] = useState(String(s.couple.monthly_budget));
   const [invite, setInvite] = useState(false);
   const [curPicker, setCurPicker] = useState(false);
-  const [dressing, setDressing] = useState(null);
-  const locked = liveExpenses(s).length > 0;
+  // #/settings/character opens your own character straight away (from the welcome message on Home).
+  const [dressing, setDressing] = useState(arg === 'character' ? mine : null);
+  const locked = !onlySamples(s);
+  const hasSamples = liveExpenses(s).some((e) => e.sample);
 
   const saveBudget = () => {
     const n = Number(budget);
@@ -702,36 +806,46 @@ export function Settings({ nav }) {
         ${MODE === 'demo' && other && html`<div class="setting"><span>Use the app as ${other.display_name}</span><button class="btn btn-secondary small" onClick=${() => { const next = other.display_name; switchDemoUser(); toast(`Now using the app as ${next}`); }}>Switch</button></div>`}
       </div>
 
-<h2 class="list-label">Characters</h2>
-<div class="group">
-  ${[mine, other].filter(Boolean).map((m) => {
-    const editable = MODE === 'demo' || m.user_id === s.session.userId;
-    return html`
-      <div key=${m.user_id} class="setting char-row">
-        <span class="char-mini" aria-hidden="true"><${CharArt} avatar=${avatarFor(m.user_id, s)} crop="head"/></span>
-        <span>${m.user_id === mine?.user_id ? 'You' : m.display_name}<small>${editable ? 'Hair, face, clothes, hats' : 'They can change their own look'}</small></span>
-        ${editable && html`<button class="btn btn-secondary small" onClick=${() => setDressing(m)}>Change</button>`}
-      </div>`;
-  })}
-</div>
+      <h2 class="list-label">Characters</h2>
+      <div class="group">
+        ${[mine, other].filter(Boolean).map((m) => {
+          const editable = MODE === 'demo' || m.user_id === s.session.userId;
+          return html`
+            <div key=${m.user_id} class="setting char-row">
+              <span class="char-mini" aria-hidden="true"><${CharArt} avatar=${avatarFor(m.user_id, s)} crop="head"/></span>
+              <span>${m.user_id === mine?.user_id ? 'You' : m.display_name}<small>${editable ? 'Hair, face, clothes, hats' : 'They can change their own look'}</small></span>
+              ${editable && html`<button class="btn btn-secondary small" onClick=${() => setDressing(m)}>Change</button>`}
+            </div>`;
+        })}
+      </div>
 
-<h2 class="list-label">Money</h2>
+      <h2 class="list-label">Money</h2>
       <div class="group">
         <label class="setting"><span>Monthly budget</span>
           <span class="inline-input"><i>${home}</i><input inputmode="decimal" value=${budget} onInput=${(e) => setBudget(e.target.value.replace(/[^0-9.]/g, ''))} onBlur=${saveBudget}/></span></label>
-        <div class="setting"><span>Home currency<small>${locked ? 'Can’t change after you add expenses' : 'All amounts convert to this'}</small></span>
+        <div class="setting"><span>Home currency<small>${locked ? 'Can’t change after you add expenses' : hasSamples ? 'Sample expenses will switch too' : 'All amounts convert to this'}</small></span>
           ${locked ? html`<b>${home}</b>` : html`<button class="btn btn-secondary small" onClick=${() => setCurPicker(true)}>${home}</button>`}</div>
-        <div class="setting"><span>Categories<small>Pick a type (food, travel…) when you add</small></span>
-          <button class=${`switch ${s.prefs.categories ? 'on' : ''}`} role="switch" aria-checked=${s.prefs.categories} aria-label="Categories" onClick=${() => setPref('categories', !s.prefs.categories)}><i/></button></div>
+        <button class="setting setting-toggle" role="switch" aria-checked=${s.prefs.categories} onClick=${() => setPref('categories', !s.prefs.categories)}>
+          <span>Categories<small>Pick a type (food, travel…) when you add</small></span>
+          <span class=${`switch ${s.prefs.categories ? 'on' : ''}`} aria-hidden="true"><i/></span></button>
       </div>
 
       <h2 class="list-label">Export</h2>
       <div class="group padded"><${ExportSection}/></div>
 
+      <h2 class="list-label">How it works</h2>
+      <ol class="group padded how">
+        <li><span><b>Add</b> what you spend on dates. Say who paid.</span></li>
+        <li><span><b>The jar</b> shows the budget left this month.</span></li>
+        <li><span><b>Settle up</b> at month end: each of you gets paid back from the joint account.</span></li>
+        <li><span><b>Money left over</b> goes to the date fund, for a special date.</span></li>
+      </ol>
+
       <h2 class="list-label">Account</h2>
       <div class="group">
         ${s.session?.email && html`<div class="setting"><span>Signed in as</span><b class="mono-ish">${s.session.email}</b></div>`}
         ${MODE === 'cloud' && html`<button class="setting action" onClick=${() => signOut()}>Sign out</button>`}
+        ${hasSamples && html`<button class="setting action" onClick=${removeSamples}>Remove sample expenses<small>Your own expenses stay</small></button>`}
         <button class="setting action danger" onClick=${() => {
           if (window.confirm(MODE === 'demo' ? 'Erase all demo data on this phone? You can’t undo this.' : 'Leave this jar? You will lose access to it.')) leaveCouple();
         }}>${MODE === 'demo' ? 'Erase demo data' : 'Leave this jar'}</button>
@@ -740,7 +854,7 @@ export function Settings({ nav }) {
       <p class="about">Date Jar · test version${MODE === 'demo' ? ' · demo mode' : ''}<br/>Exchange rates: open.er-api.com, updated daily.</p>
       ${invite && html`<${InviteSheet} onClose=${() => closeSheet(() => setInvite(false))}/>`}
       ${dressing && html`<${CharacterSheet} member=${dressing} onClose=${() => closeSheet(() => setDressing(null))}/>`}
-      ${curPicker && html`<${CurrencyPicker} value=${home} home=${home} onPick=${(c) => { updateCouple({ home_currency: c }); setCurPicker(false); }} onClose=${() => closeSheet(() => setCurPicker(false))}/>`}
+      ${curPicker && html`<${CurrencyPicker} value=${home} home=${home} onPick=${(c) => { changeHomeCurrency(c); setCurPicker(false); }} onClose=${() => closeSheet(() => setCurPicker(false))}/>`}
     </section>`;
 }
 

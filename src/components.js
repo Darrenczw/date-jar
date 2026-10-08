@@ -73,21 +73,39 @@ export function Avatar({ name, userId, size = 32 }) {
 
 // ---------------------------------------------------------------- dialogs
 
-export function Sheet({ title, onClose, children, tall = false, full = false, class: cls = '' }) {
+/**
+ * A bottom sheet. `dirty` means it holds unsaved work: a stray backdrop tap is ignored,
+ * and Esc calls `onClose` straight away so the sheet can ask before discarding.
+ */
+export function Sheet({ title, onClose, children, tall = false, full = false, dirty = false, class: cls = '' }) {
   const ref = useRef(null);
+  const latest = useRef({ onClose, dirty });
+  latest.current = { onClose, dirty };
   useEffect(() => {
     const d = ref.current;
     if (!d) return undefined;
     if (!d.open) d.showModal();
-    const cancel = (e) => { e.preventDefault(); closeSheet(onClose); };
+    const cancel = (e) => { e.preventDefault(); const l = latest.current; if (l.dirty) l.onClose(); else closeSheet(l.onClose); };
     d.addEventListener('cancel', cancel);
     return () => d.removeEventListener('cancel', cancel);
   }, []);
   return html`
     <dialog ref=${ref} class=${`sheet ${tall ? 'tall' : ''} ${full ? 'full' : ''} ${cls}`} aria-label=${title}
-      onClick=${(e) => e.target === ref.current && closeSheet(onClose)}>
+      onClick=${(e) => e.target === ref.current && !dirty && closeSheet(onClose)}>
       <div class="sheet-body">${children}</div>
     </dialog>`;
+}
+
+/** Asks before unsaved work is thrown away. Shown at the top of a sheet. */
+export function DiscardBar({ what, onDiscard, onKeep }) {
+  return html`
+    <div class="discard-bar" role="alertdialog" aria-label=${`Discard ${what}?`}>
+      <b>Discard ${what}?</b>
+      <div class="btn-row">
+        <button class="btn btn-secondary small" onClick=${onDiscard}>Discard</button>
+        <button class="btn btn-quiet small" onClick=${onKeep}>Keep editing</button>
+      </div>
+    </div>`;
 }
 
 /** Slide the topmost sheet away, then run `done` (which unmounts it). */
@@ -122,31 +140,54 @@ export function ExpenseRow({ e, onOpen, home }) {
   const payer = memberName(e.paid_by, s);
   const addedByOther = e.added_by && e.added_by !== e.paid_by && e.paid_by;
   const no = String(entryNumber(e.id, s)).padStart(3, '0');
+  const estimate = foreign && !e.amount_confirmed;
+  // Least important last, so a narrow row cuts the entry number before anything useful.
   const sub = [
     e.paid_by ? `${payer} paid` : 'Joint account',
-    foreign ? `${fmt(e.original_amount, e.original_currency)}${e.amount_confirmed ? '' : ' · estimate'}` : null,
+    foreign ? fmt(e.original_amount, e.original_currency) : null,
     addedByOther ? `added by ${memberName(e.added_by, s).replace(/^You$/, 'you')}` : null,
+    `No.${no}`,
   ].filter(Boolean).join(' · ');
   return html`
     <button class="row" onClick=${() => onOpen(e.id)}>
       <span class=${`row-icon ${e.from_fund ? 'fund' : `cat-${e.category || 'none'}`}`}><${Icon} name=${e.from_fund ? 'chest' : categoryIcon(e.category)} size=${24}/></span>
       <span class="row-main">
-        <span class="row-title"><i class="row-no">No.${no}</i><span class="row-desc">${e.description}</span>${reactions.length > 0 && html`<span class="row-react" aria-label=${`${reactions.length} ${reactions.length === 1 ? "reaction" : "reactions"}`}>${reactions.map((r, i) => html`<${Icon} key=${i} name=${r} size=${12} class=${`react-${r}`}/>`)}</span>`}</span>
+        <span class="row-title"><span class="row-desc">${e.description}</span>${reactions.length > 0 && html`<span class="row-react" aria-label=${`${reactions.length} ${reactions.length === 1 ? "reaction" : "reactions"}`}>${reactions.map((r, i) => html`<${Icon} key=${i} name=${r} size=${12} class=${`react-${r}`}/>`)}</span>`}</span>
         <span class="row-sub"><i class=${`pip ${e.paid_by ? '' : 'pip-joint'}`} style=${e.paid_by ? partyTone(e.paid_by, s).style : ''} aria-hidden="true"></i>${sub}</span>
       </span>
       <span class="row-amt">
         ${e.home_amount || !foreign ? html`<span>${tight(fmt(e.home_amount, home))}</span>` : html`<span class="pending">no rate yet</span>`}
         ${e.from_fund && html`<span class="row-fund">date fund</span>`}
-        ${e.sample && html`<span class="row-sample">sample</span>`}
+        ${estimate && html`<span class="row-tag row-est">estimate</span>`}
+        ${e.sample && html`<span class="row-tag">sample</span>`}
       </span>
     </button>`;
 }
 
+/**
+ * Arrow keys for a radio group (role="radiogroup" of role="radio" buttons), as screen-reader
+ * and keyboard users expect: arrows move and select, and only the checked option is a Tab stop.
+ */
+export function radioKeys(e) {
+  const keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1, Home: 'first', End: 'last' };
+  if (!(e.key in keys)) return;
+  const radios = [...e.currentTarget.querySelectorAll('[role="radio"]')];
+  const at = radios.indexOf(document.activeElement);
+  if (at < 0) return;
+  e.preventDefault();
+  const step = keys[e.key];
+  const next = step === 'first' ? 0 : step === 'last' ? radios.length - 1 : (at + step + radios.length) % radios.length;
+  radios[next].focus();
+  radios[next].click();
+}
+/** Tab stop for one option in a radioKeys group. */
+export const radioTab = (checked) => (checked ? 0 : -1);
+
 export function Segmented({ options, value, onChange, label, class: cls = '' }) {
   return html`
-    <div class=${`segmented ${cls}`} role="radiogroup" aria-label=${label}>
+    <div class=${`segmented ${cls}`} role="radiogroup" aria-label=${label} onKeyDown=${radioKeys}>
       ${options.map((o) => html`
-        <button key=${o.value} role="radio" aria-checked=${o.value === value} class=${`${o.value === value ? 'on' : ''} ${o.tone ? 'toned' : ''}`} style=${o.tone?.style ?? ''}
+        <button key=${o.value} role="radio" aria-checked=${o.value === value} tabIndex=${radioTab(o.value === value)} class=${`${o.value === value ? 'on' : ''} ${o.tone ? 'toned' : ''}`} style=${o.tone?.style ?? ''}
           onClick=${() => onChange(o.value)} type="button">
           ${o.tone ? html`<i class="seg-pip" aria-hidden="true"></i>` : o.icon && html`<${Icon} name=${o.icon} size=${12}/>`}
           <span>${o.label}</span>

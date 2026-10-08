@@ -7,16 +7,24 @@ import { CurrencyPicker } from './add.js';
 import { MODE, createCouple, joinCouple, sendCode, verifyCode, useStore, signOut, friendlyError } from './store.js';
 import { currencyName, symbolFor } from './money.js';
 
-// Names used when the couple leaves the name fields blank.
-const DEFAULT_ME = 'Darren';
-const DEFAULT_PARTNER = 'Ji Won';
 // Names are proper nouns: no autocorrect or spellcheck squiggles.
 const NAME_INPUT = { autocorrect: 'off', autocapitalize: 'words', spellcheck: false };
 
+const CURRENCY_BY_REGION = { SG: 'SGD', MY: 'MYR', US: 'USD', GB: 'GBP', AU: 'AUD', NZ: 'NZD', JP: 'JPY', HK: 'HKD', CA: 'CAD', ID: 'IDR', TH: 'THB', PH: 'PHP', IN: 'INR', KR: 'KRW', TW: 'TWD', CN: 'CNY' };
+const CURRENCY_BY_ZONE = {
+  'Asia/Singapore': 'SGD', 'Asia/Kuala_Lumpur': 'MYR', 'Asia/Kuching': 'MYR', 'Asia/Tokyo': 'JPY', 'Asia/Hong_Kong': 'HKD', 'Asia/Jakarta': 'IDR',
+  'Asia/Bangkok': 'THB', 'Asia/Manila': 'PHP', 'Asia/Kolkata': 'INR', 'Asia/Seoul': 'KRW', 'Asia/Taipei': 'TWD', 'Asia/Shanghai': 'CNY',
+  'Europe/London': 'GBP', 'Australia/Sydney': 'AUD', 'Australia/Melbourne': 'AUD', 'Pacific/Auckland': 'NZD',
+};
+
+/** Where the phone is (its time zone) says more about money than its language: many SG iPhones are set to UK or US English. */
 function regionCurrency() {
-  const map = { SG: 'SGD', MY: 'MYR', US: 'USD', GB: 'GBP', AU: 'AUD', NZ: 'NZD', JP: 'JPY', HK: 'HKD', CA: 'CAD', ID: 'IDR', TH: 'THB', PH: 'PHP', IN: 'INR', KR: 'KRW', TW: 'TWD', CN: 'CNY' };
+  let zone = '';
+  try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { /* very old browser */ }
+  if (CURRENCY_BY_ZONE[zone]) return CURRENCY_BY_ZONE[zone];
+  if (zone.startsWith('America/')) return 'USD';
   const region = (navigator.language || 'en-SG').split('-')[1]?.toUpperCase();
-  return map[region] ?? 'SGD';
+  return CURRENCY_BY_REGION[region] ?? 'SGD';
 }
 
 function Hero({ title, sub }) {
@@ -104,17 +112,17 @@ export function Onboarding() {
 
     create: html`
       <button class="back" onClick=${() => setStep('choose')}><${Icon} name="back" size=${20}/> Back</button>
-      <div class="step-head"><h1>Set up your jar</h1><p>Add your names and your monthly date budget. You can change this later.</p></div>
+      <div class="step-head"><h1>Set up your jar</h1><p>Add your names and how much you want to spend on dates each month.</p></div>
       <form class="form" onSubmit=${(e) => {
         e.preventDefault();
         run(async () => {
-          await createCouple({ myName: myName.trim() || DEFAULT_ME, partnerName: partnerName.trim() || DEFAULT_PARTNER, currency, budget: Number(budget) || 1000, sample });
+          await createCouple({ myName: myName.trim(), partnerName: partnerName.trim(), currency, budget: Number(budget) || 1000, sample });
         });
       }}>
-        <${Field} label="Your name"><input autocomplete="given-name" ...${NAME_INPUT} value=${myName} onInput=${(e) => setMyName(e.target.value)} maxlength="40" placeholder=${DEFAULT_ME}/><//>
-        ${MODE === 'demo' && html`<${Field} label="Your partner's name"><input autocomplete="off" ...${NAME_INPUT} value=${partnerName} onInput=${(e) => setPartnerName(e.target.value)} maxlength="40" placeholder=${DEFAULT_PARTNER}/><//>`}
+        <${Field} label="Your name"><input autocomplete="given-name" ...${NAME_INPUT} value=${myName} onInput=${(e) => setMyName(e.target.value)} maxlength="40" required placeholder="First name"/><//>
+        ${MODE === 'demo' && html`<${Field} label="Your partner's name"><input autocomplete="off" ...${NAME_INPUT} value=${partnerName} onInput=${(e) => setPartnerName(e.target.value)} maxlength="40" required placeholder="First name"/><//>`}
         <div class="two-col">
-          <${Field} label="Home currency">
+          <${Field} label="Home currency" hint=${`Amounts show in ${symbolFor(currency).trim()}. You can change it until you add your first expense.`}>
             <button type="button" class="select-btn" onClick=${() => setPicker(true)}><b>${currency}</b> <span>${currencyName(currency)}</span><${Icon} name="down" size=${16}/></button>
           <//>
           <${Field} label="Monthly budget">
@@ -122,20 +130,20 @@ export function Onboarding() {
           <//>
         </div>
         ${MODE === 'demo' && html`
-          <label class="check"><input type="checkbox" checked=${sample} onChange=${(e) => setSample(e.target.checked)}/><span>Add sample expenses to try the app<small>They are marked “sample”. Erase them in Settings.</small></span></label>`}
+          <label class="check"><input type="checkbox" checked=${sample} onChange=${(e) => setSample(e.target.checked)}/><span>Add sample expenses to try the app<small>They are marked “sample”. Remove them any time in Settings.</small></span></label>`}
         ${error && html`<p class="error" role="alert">${error}</p>`}
-        <button class="btn btn-primary btn-block" disabled=${busy}>${busy ? 'Creating…' : 'Create our jar'}</button>
+        <button class="btn btn-primary btn-block" disabled=${busy || !myName.trim() || (MODE === 'demo' && !partnerName.trim())}>${busy ? 'Creating…' : 'Create our jar'}</button>
       </form>
       ${picker && html`<${CurrencyPicker} value=${currency} home=${currency} onPick=${(c) => { setCurrency(c); setPicker(false); }} onClose=${() => closeSheet(() => setPicker(false))}/>`}`,
 
     join: html`
       <button class="back" onClick=${() => setStep('choose')}><${Icon} name="back" size=${20}/> Back</button>
       <div class="step-head"><h1>Join your partner's jar</h1><p>Ask your partner for the invite code. They find it in Settings.</p></div>
-      <form class="form" onSubmit=${(e) => { e.preventDefault(); run(() => joinCouple({ code: joinCode, myName: myName.trim() || DEFAULT_PARTNER })); }}>
+      <form class="form" onSubmit=${(e) => { e.preventDefault(); run(() => joinCouple({ code: joinCode, myName: myName.trim() })); }}>
         <${Field} label="Invite code"><input class="code-input" autocapitalize="characters" autocomplete="off" maxlength="6" placeholder="ABC123" value=${joinCode} onInput=${(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}/><//>
-        <${Field} label="Your name"><input autocomplete="given-name" ...${NAME_INPUT} value=${myName} onInput=${(e) => setMyName(e.target.value)} maxlength="40" placeholder=${DEFAULT_PARTNER}/><//>
+        <${Field} label="Your name"><input autocomplete="given-name" ...${NAME_INPUT} value=${myName} onInput=${(e) => setMyName(e.target.value)} maxlength="40" required placeholder="First name"/><//>
         ${error && html`<p class="error" role="alert">${error}</p>`}
-        <button class="btn btn-primary btn-block" disabled=${busy || joinCode.length < 6}>${busy ? 'Joining…' : 'Join the jar'}</button>
+        <button class="btn btn-primary btn-block" disabled=${busy || joinCode.length < 6 || !myName.trim()}>${busy ? 'Joining…' : 'Join the jar'}</button>
       </form>`,
   }[step];
 

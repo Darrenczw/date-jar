@@ -1,6 +1,6 @@
 // The character editor: hair, face, clothes and extras, with a live preview.
 import { html, useState } from './ui.js';
-import { Segmented, Sheet, SheetHeader, avatarFor } from './components.js';
+import { DiscardBar, Segmented, Sheet, SheetHeader, avatarFor, radioKeys, radioTab } from './components.js';
 import { AVATAR_OPTIONS, COLOURED_HATS, CharArt, normalizeAvatar, randomAvatar } from './avatar.js';
 import { Scene, Sprite } from './sprites.js';
 import { toast, updateMemberAvatar, useStore } from './store.js';
@@ -26,7 +26,15 @@ const SECTIONS = {
 export function CharacterSheet({ member, onClose }) {
   const s = useStore();
   const index = Math.max(0, s.members.findIndex((m) => m.user_id === member.user_id));
-  const [look, setLook] = useState(() => normalizeAvatar(avatarFor(member.user_id, s), index));
+  const [start] = useState(() => normalizeAvatar(avatarFor(member.user_id, s), index));
+  const [look, setLook] = useState(start);
+  const [asking, setAsking] = useState(false);
+  const dirty = JSON.stringify(look) !== JSON.stringify(start);
+  // Your top colour is your colour across the app, so it helps when the two of you differ.
+  const otherMember = s.members.find((m) => m.user_id !== member.user_id);
+  const otherIndex = s.members.findIndex((m) => m.user_id === otherMember?.user_id);
+  const otherTop = otherMember ? normalizeAvatar(avatarFor(otherMember.user_id, s), Math.max(0, otherIndex)).topColor : null;
+  const requestClose = () => (dirty ? setAsking(true) : onClose());
   const [tab, setTab] = useState('hair');
   const [bounce, setBounce] = useState(0);
   const you = member.user_id === s.session.userId;
@@ -41,18 +49,19 @@ export function CharacterSheet({ member, onClose }) {
   const swatches = (key, label) => html`
     <div class="field-group" key=${key}>
       <span class="field-label" id=${`lbl-${key}`}>${label}</span>
-      <div class="swatches" role="radiogroup" aria-labelledby=${`lbl-${key}`}>
+      ${key === 'topColor' && html`<p class="hint swatch-hint">${look.topColor === otherTop ? `${otherMember.display_name} wears this colour too. Pick another so you are easy to tell apart.` : 'This is your colour in the app.'}</p>`}
+      <div class="swatches" role="radiogroup" aria-labelledby=${`lbl-${key}`} onKeyDown=${radioKeys}>
         ${AVATAR_OPTIONS[key].map((o) => html`
-          <button key=${o.id} type="button" role="radio" aria-checked=${look[key] === o.id} aria-label=${o.label} title=${o.label}
+          <button key=${o.id} type="button" role="radio" aria-checked=${look[key] === o.id} tabIndex=${radioTab(look[key] === o.id)} aria-label=${o.label} title=${o.label}
             class=${`swatch ${look[key] === o.id ? 'on' : ''}`} style=${`--sw:${o.id}`} onClick=${() => set(key, o.id)}></button>`)}
       </div>
     </div>`;
   const tiles = (key, label, crop) => html`
     <div class="field-group" key=${key}>
       <span class="field-label" id=${`lbl-${key}`}>${label}</span>
-      <div class="look-tiles" role="radiogroup" aria-labelledby=${`lbl-${key}`}>
+      <div class="look-tiles" role="radiogroup" aria-labelledby=${`lbl-${key}`} onKeyDown=${radioKeys}>
         ${AVATAR_OPTIONS[key].map((o) => html`
-          <button key=${o.id} type="button" role="radio" aria-checked=${look[key] === o.id}
+          <button key=${o.id} type="button" role="radio" aria-checked=${look[key] === o.id} tabIndex=${radioTab(look[key] === o.id)}
             class=${`look-tile ${look[key] === o.id ? 'on' : ''}`} onClick=${() => set(key, o.id)}>
             <span class=${`look-art look-art-${crop}`}><${CharArt} avatar=${{ ...look, [key]: o.id }} crop=${crop}/></span>
             <span class="look-name">${o.label}</span>
@@ -62,9 +71,10 @@ export function CharacterSheet({ member, onClose }) {
 
   const sections = SECTIONS[tab].filter(([key]) => key !== 'hatColor' || COLOURED_HATS.has(look.hat));
   return html`
-    <${Sheet} title=${`Change ${you ? 'your character' : member.display_name}`} onClose=${onClose} tall>
-      <${SheetHeader} title=${you ? 'Your character' : member.display_name} onClose=${onClose}
+    <${Sheet} title=${`Change ${you ? 'your character' : member.display_name}`} onClose=${requestClose} dirty=${dirty} tall>
+      <${SheetHeader} title=${you ? 'Your character' : member.display_name} onClose=${requestClose}
         right=${html`<button class="chip" onClick=${surprise}>Random</button>`}/>
+      ${asking && html`<${DiscardBar} what="changes" onDiscard=${() => { setAsking(false); onClose(); }} onKeep=${() => setAsking(false)}/>`}
       <div class="sheet-scroll char-scroll">
         <div class="char-top">
           <div class="char-stage"><${Scene} compact>

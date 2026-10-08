@@ -1,7 +1,7 @@
 // Quick add / edit, currency picker and expense detail.
 import { html, useEffect, useMemo, useRef, useState } from './ui.js';
 import { Icon } from './icons.js';
-import { Chip, Segmented, Sheet, SheetHeader, closeSheet, partyTone, tight } from './components.js';
+import { Chip, DiscardBar, Segmented, Sheet, SheetHeader, closeSheet, partyTone, tight } from './components.js';
 import {
   CATEGORIES, REACTIONS, reactionKey, dateFundBalance, deleteExpense, memberName, me, partner,
   react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow, entryNumber,
@@ -118,6 +118,7 @@ export function AddSheet({ editing = null, onClose }) {
   const [override, setOverride] = useState(editing && editing.amount_confirmed && editing.original_currency !== home ? String(editing.home_amount) : '');
   const [typing, setTyping] = useState(false);
   const [picker, setPicker] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [, tick] = useState(0);
   const descRef = useRef(null);
 
@@ -137,15 +138,21 @@ export function AddSheet({ editing = null, onClose }) {
   const changeCurrency = (c) => {
     setCurrency(c);
     setPicker(false);
-    const d = currencyDecimals(c);
-    setAmount((cur) => {
-      if (d === 0 && cur.includes('.')) return cur.split('.')[0];
-      return cur;
-    });
+    if (currencyDecimals(c) === 0 && amount.includes('.') && Number(amount.split('.')[1])) {
+      const whole = amount.split('.')[0] || '0';
+      toast(`${c} has no cents. The amount is now ${groupDigits(whole)}.`);
+    }
+    setAmount((cur) => (currencyDecimals(c) === 0 && cur.includes('.') ? cur.split('.')[0] : cur));
     if (c === home) setOverride('');
   };
 
   const canSave = num > 0;
+  // Unsaved work: a typed amount or words on a new expense, or any change while editing.
+  const dirty = editing
+    ? amount !== String(editing.original_amount) || description !== (editing.description ?? '') || currency !== editing.original_currency
+      || date !== editing.spent_on || category !== (editing.category ?? null) || paidBy !== (editing.paid_by ?? 'joint')
+    : amount !== '' || description.trim() !== '';
+  const requestClose = () => (dirty ? setAsking(true) : onClose());
   const save = () => {
     if (!canSave) return;
     const fallback = category ? CATEGORIES.find((c) => c.id === category)?.label : 'Shared expense';
@@ -174,27 +181,28 @@ export function AddSheet({ editing = null, onClose }) {
   const payerOptions = [
     { value: mine?.user_id, label: 'Me', tone: mine && partyTone(mine.user_id, s) },
     ...(other ? [{ value: other.user_id, label: other.display_name, tone: partyTone(other.user_id, s) }] : []),
-    { value: 'joint', label: 'Joint', icon: 'joint' },
+    { value: 'joint', label: 'Joint account', icon: 'joint' },
   ];
 
   const shown = amount === '' ? '0' : groupDigits(amount);
   const sizeClass = shown.length > 11 ? 'xs' : shown.length > 8 ? 'sm' : '';
 
   return html`
-    <${Sheet} title=${editing ? 'Edit expense' : 'New expense'} onClose=${onClose} tall class=${typing ? 'typing' : ''}>
-      <${SheetHeader} title=${editing ? 'Edit expense' : 'New expense'} onClose=${onClose}
+    <${Sheet} title=${editing ? 'Edit expense' : 'New expense'} onClose=${requestClose} dirty=${dirty} tall class=${typing ? 'typing' : ''}>
+      <${SheetHeader} title=${editing ? 'Edit expense' : 'New expense'} onClose=${requestClose}
         right=${html`
           <label class="chip chip-date">
             <${Icon} name="calendar" size=${16}/><span>${dayLabel(date)}</span>
             <input type="date" value=${date} onInput=${(e) => e.target.value && setDate(e.target.value)} aria-label="Date"/>
           </label>`}/>
 
+      ${asking && html`<${DiscardBar} what=${editing ? 'changes' : 'this expense'} onDiscard=${() => { setAsking(false); onClose(); }} onKeep=${() => setAsking(false)}/>`}
       <div class="sheet-scroll add-scroll">
         <div class="amount-wrap">
           <button class="cur-btn" onClick=${() => setPicker(true)} aria-label=${`Currency: ${currency}. Change`}>
             <span>${symbolFor(currency).trim()}</span>${currency !== home && html`<span class="cur-code">${currency}</span>`}<${Icon} name="down" size=${14}/>
           </button>
-          <output class=${`amount ${sizeClass} ${amount === '' ? 'ph' : ''}`} aria-live="polite" aria-label="Amount">${tight(shown)}</output>
+          <output class=${`amount ${sizeClass} ${amount === '' ? 'ph' : ''}`} aria-live="polite" aria-label=${`Amount: ${amount === "" ? "none yet" : `${shown} ${currency}`}`}>${tight(shown)}</output>
         </div>
         ${foreign && html`
           <p class="conv" aria-live="polite">
@@ -217,18 +225,19 @@ export function AddSheet({ editing = null, onClose }) {
           </div>
         </div>
 
+        ${s.prefs.categories && html`
+          <div class="field-group">
+            <span class="field-label">Category</span>
+            <div class="chip-row scroll" role="group" aria-label="Category">
+              ${CATEGORIES.map((c) => html`<${Chip} key=${c.id} class="content" on=${category === c.id} onClick=${() => setCategory(category === c.id ? null : c.id)}>${c.label}<//>`)}
+            </div>
+          </div>`}
+
         <div class="field-group">
           <span class="field-label" id="paid-label">Paid by</span>
           <${Segmented} label="Paid by" options=${payerOptions} value=${paidBy} onChange=${setPaidBy}/>
         </div>
 
-        ${s.prefs.categories && html`
-          <div class="field-group">
-            <span class="field-label">Category</span>
-            <div class="chip-row" role="group" aria-label="Category">
-              ${CATEGORIES.map((c) => html`<${Chip} key=${c.id} class="content" on=${category === c.id} onClick=${() => setCategory(category === c.id ? null : c.id)}>${c.label}<//>`)}
-            </div>
-          </div>`}
 
         ${foreign && html`
           <div class="field-group">
@@ -244,7 +253,7 @@ export function AddSheet({ editing = null, onClose }) {
 
         ${(fundBalance > 0 || fromFund) && html`
           <div class="field-group">
-            <${Chip} on=${fromFund} onClick=${() => setFromFund(!fromFund)}><${Icon} name="chest" size=${12}/> Pay from date fund (${fmt(fundBalance, home)})<//>
+            <${Chip} on=${fromFund} onClick=${() => setFromFund(!fromFund)}><${Icon} name="chest" size=${12}/> <span>${tight(`Pay from date fund (${fmt(fundBalance, home)})`)}</span><//>
           </div>`}
 
         ${sheetsSettled && html`<p class="notice"><${Icon} name="info" size=${16}/> ${monthLabel(monthKey(date), { withYear: false })} is already settled. Saving reopens it.</p>`}
@@ -278,14 +287,10 @@ export function DetailSheet({ id, onClose, onEdit }) {
   const counts = Object.entries(e.reactions ?? {}).map(([u, r]) => [u, reactionKey(r)]);
   const reactionLabel = (key) => REACTIONS.find((x) => x.key === key)?.label ?? key;
 
+  // Delete straight away: the toast offers Undo, which also re-settles a month this reopened.
   const confirmDelete = () => {
-    const settledMonth = settlementRow(monthKey(e.spent_on));
-    const warn = settledMonth ? ` ${monthLabel(monthKey(e.spent_on), { withYear: false })} is settled. This will reopen it.` : '';
-    // Deleting shows an Undo toast, so only ask first when it would also reopen a settled month.
-    if (!settledMonth || window.confirm(`Delete “${e.description}”?${warn}`)) {
-      onClose();
-      deleteExpense(e.id);
-    }
+    onClose();
+    deleteExpense(e.id);
   };
 
   const edited = e.edited_by ? `Edited by ${memberName(e.edited_by, s)}` : null;

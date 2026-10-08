@@ -4,7 +4,7 @@
 import { useEffect, useState } from './ui.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { convert, loadRates } from './fx.js';
-import { addMonths, currentMonthKey, monthKey, roundTo, settlementFor, todayISO, budgetExpenses, sum } from './money.js';
+import { addMonths, currentMonthKey, monthKey, monthLabel, roundTo, settlementFor, todayISO, budgetExpenses, sum } from './money.js';
 
 export const MODE = SUPABASE_URL && SUPABASE_ANON_KEY ? 'cloud' : 'demo';
 const CACHE_KEY = 'datejar.state.v1';
@@ -120,10 +120,11 @@ export function friendlyError(err) {
   return 'Something went wrong. Please try again.';
 }
 
-export function toast(message, { undo, tone = 'neutral', ms = 5000 } = {}) {
+export function toast(message, { undo, tone = 'neutral', ms } = {}) {
   clearTimeout(toastTimer);
   setState({ toast: { id: Date.now(), message, undo, tone } });
-  toastTimer = setTimeout(() => setState({ toast: null }), ms);
+  // Undo stays longer: people log on the move and may look away.
+  toastTimer = setTimeout(() => setState({ toast: null }), ms ?? (undo ? 8000 : 4000));
 }
 export function dismissToast() {
   clearTimeout(toastTimer);
@@ -479,15 +480,22 @@ export function deleteExpense(id) {
   const existing = state.expenses.find((e) => e.id === id);
   if (!existing) return;
   const k = monthKey(existing.spent_on);
-  if (settlementRow(k)) reopenMonth(k, { silent: true });
+  const wasSettled = state.settlements.find((r) => r.year_month === k && r.settled);
+  if (wasSettled) reopenMonth(k, { silent: true });
   const row = { ...existing, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString(), edited_by: state.session.userId };
   setState((s) => ({ expenses: s.expenses.map((e) => (e.id === id ? row : e)) }));
   if (MODE === 'cloud') enqueue({ type: 'expense', row });
-  toast(`Deleted “${existing.description}”`, {
+  toast(wasSettled ? `Deleted “${existing.description}”. ${monthLabel(k, { withYear: false })} is open again.` : `Deleted “${existing.description}”`, {
     undo: () => {
       const back = { ...existing, updated_at: new Date().toISOString() };
       setState((s) => ({ expenses: s.expenses.map((e) => (e.id === id ? back : e)) }));
       if (MODE === 'cloud') enqueue({ type: 'expense', row: back });
+      // Putting the expense back restores the month exactly as it was settled.
+      if (wasSettled) {
+        const again = { ...wasSettled };
+        setState((s) => ({ settlements: s.settlements.map((r) => (r.year_month === k ? again : r)) }));
+        if (MODE === 'cloud') enqueue({ type: 'settlement', row: again });
+      }
     },
   });
 }
@@ -556,6 +564,28 @@ export function defaultSettleMonth(s = state) {
 
 export function monthSpent(key, s = state) {
   return sum(budgetExpenses(liveExpenses(s), key));
+}
+
+/** True while the jar holds only sample expenses (the home currency can still change). */
+export function onlySamples(s = state) {
+  return !liveExpenses(s).some((e) => !e.sample);
+}
+
+/** Change the home currency. Allowed until the first real expense; sample expenses are redrawn in the new currency. */
+export function changeHomeCurrency(currency) {
+  if (!onlySamples()) return;
+  const hadSamples = liveExpenses().some((e) => e.sample);
+  updateCouple({ home_currency: currency });
+  loadRates(currency).catch(() => {});
+  if (hadSamples) { setState({ settlements: [] }); seedSample(); }
+}
+
+/** Remove every sample expense (and any month settled only with samples). Your own expenses stay. */
+export function removeSamples() {
+  const expenses = state.expenses.filter((e) => !e.sample);
+  const months = new Set(expenses.filter((e) => !e.deleted_at).map((e) => monthKey(e.spent_on)));
+  setState({ expenses, settlements: state.settlements.filter((r) => months.has(r.year_month)) });
+  toast('Sample expenses removed');
 }
 
 // ---------------------------------------------------------------- sample data (demo only)
