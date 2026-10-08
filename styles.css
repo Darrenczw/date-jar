@@ -263,7 +263,6 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
 .st-on-track .tb-head, .st-empty .tb-head { color: var(--good-text); }
 .st-ahead .tb-head, .st-hot .tb-head { color: var(--warn-text); }
 .st-over .tb-head { color: var(--bad-text); }
-.tb-spent { color: var(--text-2); }
 .more { position: absolute; right: 14px; bottom: 10px; width: 0; height: 0; border: 6px solid transparent; border-top-color: var(--action); border-bottom: 0; animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { transform: translateY(3px); } }
 
@@ -318,7 +317,6 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
 .row-title { display: flex; align-items: center; min-width: 0; font-weight: 700; font-size: 1rem; white-space: nowrap; }
 .row-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .row-title > :not(.row-desc) { flex: none; }
-.row-no { font-family: var(--font-pixel); font-style: normal; font-weight: 500; color: var(--text-2); font-size: 0.8rem; margin-right: 0.4rem; }
 .row-react { margin-left: 0.35rem; font-size: 0.85rem; }
 .row-sub { color: var(--text-2); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-amt { font-family: var(--font-pixel); font-weight: 700; font-size: 1.1rem; text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
@@ -421,13 +419,13 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
   position: fixed; left: 50%; bottom: calc(var(--tab-h) + 1.3rem + env(safe-area-inset-bottom)); z-index: 40;
   transform: translateX(-50%); width: min(calc(100% - 2.2rem), 28rem);
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-  padding: 0.7rem 0.7rem 0.7rem 1rem; background: var(--line); color: #fff4dc;
-  font-family: var(--font-pixel); font-size: 1rem; box-shadow: var(--px2), 0 6px 0 0 rgb(0 0 0 / 0.18);
-  animation: toast-in 0.25s steps(3) both;
+  padding: 0.7rem 0.7rem 0.7rem 1rem; background: var(--panel); color: var(--text);
+  font-family: var(--font-pixel); font-size: 1rem; box-shadow: var(--px), 0 6px 0 0 rgb(0 0 0 / 0.18);
+  outline: 2px solid var(--panel-2); outline-offset: -7px;
+  animation: toast-in 0.32s var(--ease-out) both;
 }
-.toast button { color: var(--sun); font-weight: 700; padding: 0.3rem 0.7rem; min-height: 2.3rem; text-decoration: underline; text-underline-offset: 3px; }
-.toast-good { background: var(--good-text); color: #fff; }
-@media (prefers-color-scheme: dark) { .toast { background: #fff4dc; color: #2e2a4f; } .toast button { color: var(--action); } .toast-good { background: #3d8a4c; color: #fff; } }
+.toast button { color: var(--bad-text); font-weight: 700; padding: 0.3rem 0.7rem; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }
+.toast-good { color: var(--good-text); }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 10px); } }
 
 /* ------------------------------------------------------------ sheets */
@@ -646,9 +644,6 @@ dialog.sheet::backdrop { background: rgb(29 27 51 / 0.6); }
 }
 .notice.ok { background: var(--panel); color: var(--good-text); }
 .notice.warn b, .transfer-main b, .tb-head { text-wrap: balance; }
-.toast { background: var(--panel); color: var(--text); box-shadow: var(--px), 0 6px 0 0 rgb(0 0 0 / 0.18); outline: 2px solid var(--panel-2); outline-offset: -7px; }
-.toast button { color: var(--bad-text); }
-.toast-good { background: var(--panel); color: var(--good-text); }
 @media (prefers-color-scheme: dark) { .toast, .toast-good { background: var(--panel); } .toast { color: var(--text); } .toast button { color: var(--sun); } }
 
 /* Paged Home text box: ▼ pages to the next message, ▶ cursor marks the action. */
@@ -709,7 +704,6 @@ dialog.sheet::backdrop { background: rgb(29 27 51 / 0.6); }
 .money { white-space: nowrap; }
 /* Foreign currency shows its code beside the symbol so ¥ is never a surprise. */
 .cur-code { font-size: 0.8rem; margin-left: 0.15rem; color: var(--text-2); }
-.row-sample { margin-top: 0.3rem; padding: 0 5px; line-height: 1.35; font-family: var(--font-pixel); font-size: 0.7rem; font-weight: 400; color: var(--text-2); box-shadow: var(--px2); vertical-align: 1px; }
 .detail-no { font-family: var(--font-pixel); color: var(--text-2); font-size: 0.9rem; margin-top: 0.5rem; }
 .settle-first { margin: 1rem 3px 0.6rem; }
 /* Money spans always take their parent's type. */
@@ -726,7 +720,6 @@ dialog.sheet.closing::backdrop { animation: fade-out 0.23s ease-in forwards; }
 @keyframes sheet-out { to { transform: translateY(100%); } }
 @keyframes fade-out { to { opacity: 0; } }
 .screen { animation: pop 0.24s var(--ease-out) both; }
-.toast { animation: toast-in 0.32s var(--ease-out) both; }
 .btn, .chip, .tab-add, .nudge, .reactions button { transition: transform 0.12s var(--ease-out), background-color 0.15s ease; }
 .hp-fill { transition: transform 0.6s var(--ease-out); }
 
@@ -884,3 +877,44 @@ dialog.sheet.closing::backdrop { animation: fade-out 0.23s ease-in forwards; }
 .settled-card.fresh { animation: quest-in 0.55s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
 .settled-card .confetti { top: 30%; }
 @keyframes quest-in { from { opacity: 0; transform: scale(1.18) rotate(-2deg); } }
+
+/* Critique fixes (8 Oct) · touch targets: every tappable control is at least 44px tall. */
+.btn.small, .chip, .segmented button, .setting input { min-height: 44px; }
+.swatch { width: 44px; height: 44px; }
+.people { min-height: 44px; align-items: center; padding: 5px 2px; }
+.segmented button span { white-space: normal; line-height: 1.1; text-align: center; }
+.setting-toggle { cursor: pointer; }
+.setting-toggle:active { background: var(--panel-2); }
+.setting.action small { display: block; font-family: var(--font-body); font-size: 0.78rem; color: var(--text-2); }
+.setting.action { flex-direction: column; gap: 0.1rem; }
+
+/* Home · the allowance is the line to act on; the pager says what it does. */
+.tb-big { font-family: var(--font-pixel); font-size: 1.5rem; line-height: 1.15; margin: 0.15rem 0 0.05rem; }
+.tb-next { font-family: var(--font-pixel); font-size: 0.9rem; color: var(--bad-text); }
+.tb-next .tb-count { color: var(--text-2); }
+
+/* Expense rows · tags stack under the amount; "estimate" is the one to act on. */
+.row-tag { margin-top: 0.3rem; padding: 0 5px; line-height: 1.35; font-family: var(--font-pixel); font-size: 0.7rem; font-weight: 400; color: var(--text-2); box-shadow: var(--px2); }
+.row-est { color: var(--warn-text); }
+.row-tag + .row-tag { margin-top: 0.25rem; }
+.est-link .content { font-family: var(--font-body); }
+
+/* Unsaved work · asks inside the sheet instead of a system pop-up. */
+.discard-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.8rem; margin: 0 1.1rem 0.4rem; padding: 0.6rem 0.8rem; background: var(--panel-2); box-shadow: var(--px2); }
+.discard-bar b { font-family: var(--font-pixel); font-size: 1.05rem; font-weight: 400; }
+.discard-bar .btn-row, .reopen-check .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }
+.discard-bar .btn-row { margin-top: 0; }
+
+/* Settle review · each transfer listed before anything is marked as moved. */
+.review-step { display: flex; gap: 0.6rem; align-items: baseline; margin: 1rem 0 0.6rem; font-weight: 650; }
+.review-step b { display: grid; place-items: center; flex: none; width: 1.6rem; height: 1.6rem; font-family: var(--font-pixel); font-weight: 400; background: var(--sun); color: #2e2a4f; box-shadow: var(--px2); }
+.review-list { background: var(--panel); box-shadow: var(--px); margin: 3px; }
+.review-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.8rem; font-family: var(--font-pixel); font-size: 1.1rem; }
+.review-row + .review-row { border-top: 3px solid var(--panel-2); }
+.review-row > span { flex: 1; min-width: 0; }
+.review .notice.warn p { color: var(--text); margin: 0.1rem 0; }
+.settle .settled-card { margin-top: 0.4rem; }
+.swatch-hint { margin: -0.2rem 0 0.5rem; }
+.how { list-style: none; counter-reset: how; display: grid; gap: 0.55rem; }
+.how li { counter-increment: how; display: flex; gap: 0.6rem; align-items: baseline; font-size: 0.95rem; }
+.how li::before { content: counter(how); display: grid; place-items: center; flex: none; width: 1.5rem; height: 1.5rem; font-family: var(--font-pixel); background: var(--sun); color: #2e2a4f; box-shadow: var(--px2); }
