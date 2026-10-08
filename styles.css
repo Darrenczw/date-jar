@@ -147,8 +147,6 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
   font-family: var(--font-pixel); font-size: calc(var(--size) * 0.55); font-weight: 700; line-height: 1;
   color: #2e2a4f; box-shadow: var(--px2);
 }
-.avatar-you { background: var(--you); }
-.avatar-partner { background: var(--partner); }
 .avatar-joint { background: var(--panel-2); color: var(--text); }
 .avatar-ghost { background: var(--panel); color: var(--text-2); }
 .people { display: flex; gap: 8px; padding: 2px; }
@@ -166,7 +164,6 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
 .px-hair { fill: var(--hair); }
 .px-skin { fill: var(--skin); }
 .px-blush { fill: var(--blush); }
-.px-shirt { fill: var(--shirt, var(--you)); }
 .px-pants { fill: var(--pants); }
 .px-cloud { fill: var(--cloud); }
 .px-cloud-edge { fill: var(--cloud-edge); }
@@ -220,8 +217,7 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
 
 /* ------------------------------------------------------------ sprites */
 
-.sprite { position: relative; width: 60px; display: flex; flex-direction: column; align-items: center; --shirt: var(--you); }
-.sprite-partner { --shirt: var(--partner); }
+.sprite { position: relative; width: 60px; display: flex; flex-direction: column; align-items: center; }
 .sprite > svg { width: 60px; height: auto; display: block; animation: bob 1.2s steps(2) var(--delay, 0ms) infinite; }
 @keyframes bob { 50% { transform: translateY(-5px); } }
 .sprite-name {
@@ -236,7 +232,7 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
 .mood-sweat .bubble { color: var(--sky); }
 .sweat { position: absolute; top: 10px; right: -4px; width: 5px; height: 7px; background: var(--sky); box-shadow: 0 0 0 2px var(--line); animation: sweat 1s steps(4) infinite; }
 @keyframes sweat { to { transform: translateY(14px); opacity: 0; } }
-.sprite-ghost { height: 80px; border: 3px dashed color-mix(in srgb, var(--line) 50%, transparent); }
+.sprite-ghost { --sprite-w: 72px; height: 88px; border: 3px dashed color-mix(in srgb, var(--line) 50%, transparent); }
 .sprite-ghost .sprite-name { top: calc(100% + 0.3rem); }
 
 /* ------------------------------------------------------------ HP bar */
@@ -319,7 +315,9 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
 .row-icon { width: 2.6rem; height: 2.6rem; display: grid; place-items: center; background: var(--panel-2); color: var(--text); flex: none; }
 .row-icon.fund { background: var(--sun); color: #2e2a4f; }
 .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
-.row-title { font-weight: 700; font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-title { display: flex; align-items: center; min-width: 0; font-weight: 700; font-size: 1rem; white-space: nowrap; }
+.row-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row-title > :not(.row-desc) { flex: none; }
 .row-no { font-family: var(--font-pixel); font-style: normal; font-weight: 500; color: var(--text-2); font-size: 0.8rem; margin-right: 0.4rem; }
 .row-react { margin-left: 0.35rem; font-size: 0.85rem; }
 .row-sub { color: var(--text-2); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -711,7 +709,7 @@ dialog.sheet::backdrop { background: rgb(29 27 51 / 0.6); }
 .money { white-space: nowrap; }
 /* Foreign currency shows its code beside the symbol so ¥ is never a surprise. */
 .cur-code { font-size: 0.8rem; margin-left: 0.15rem; color: var(--text-2); }
-.row-sample { margin-left: 0.4rem; padding: 0 5px; font-family: var(--font-pixel); font-size: 0.7rem; font-weight: 400; color: var(--text-2); box-shadow: var(--px2); vertical-align: 1px; }
+.row-sample { margin-top: 0.3rem; padding: 0 5px; line-height: 1.35; font-family: var(--font-pixel); font-size: 0.7rem; font-weight: 400; color: var(--text-2); box-shadow: var(--px2); vertical-align: 1px; }
 .detail-no { font-family: var(--font-pixel); color: var(--text-2); font-size: 0.9rem; margin-top: 0.5rem; }
 .settle-first { margin: 1rem 3px 0.6rem; }
 /* Money spans always take their parent's type. */
@@ -738,13 +736,20 @@ dialog.sheet.closing::backdrop { animation: fade-out 0.23s ease-in forwards; }
 .swatches { display: flex; flex-wrap: wrap; gap: 0.7rem; padding: 4px; }
 .swatch { width: 2.5rem; height: 2.5rem; background: var(--sw); box-shadow: var(--px2); transition: transform 0.15s var(--ease-out); }
 .swatch.on { transform: translateY(-3px); outline: 3px solid var(--action); outline-offset: 4px; }
-.char-stage .scene { height: 14rem; margin-top: 0.4rem; }
-.char-stage .party-stage { transform: translateY(-0.4rem); }
-.char-scroll .chip-row { padding-left: 2px; }
+.char-top { position: sticky; top: 0; z-index: 3; margin: 0 -1.1rem; padding: 0.4rem 1.1rem 0.6rem; background: var(--panel); border-bottom: 3px solid var(--line); }
+.char-stage .scene { height: 10.5rem; }
+.char-stage .party-stage { transform: translateY(-0.2rem); }
+.char-top .segmented { margin-top: 0.7rem; }
+.look-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; padding: 3px; }
+.look-tile { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 0.4rem 0.2rem 0.35rem; background: var(--panel-2); box-shadow: var(--px2); color: var(--text-2); transition: transform 0.15s var(--ease-out); }
+.look-tile.on { background: var(--sky-day); color: var(--text); transform: translateY(-3px); outline: 3px solid var(--action); outline-offset: 3px; }
+.look-art { width: 54px; }
+.look-art-body { width: 72px; padding: 0.35rem 0; }
+.look-name { font-family: var(--font-pixel); font-size: 0.78rem; line-height: 1.15; text-align: center; }
 .char-row { gap: 0.8rem; }
 .char-row > span:nth-child(2) { flex: 1; }
-.char-mini { width: 3rem; height: 3.3rem; display: grid; place-items: end center; overflow: hidden; background: var(--sky-day); box-shadow: var(--px2); flex: none; }
-.char-mini .sprite > svg { animation: none; }
+.char-mini { width: 3.25rem; height: 3.25rem; display: grid; place-items: end center; overflow: hidden; background: var(--sky-day); box-shadow: var(--px2); flex: none; }
+.char-mini .char-art { width: 54px; flex: none; }
 
 /* R4 · Tap the characters and the jar. */
 .tap-char, .tap-jar { display: block; padding: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -814,3 +819,68 @@ dialog.sheet.closing::backdrop { animation: fade-out 0.23s ease-in forwards; }
 @keyframes coin-fall { 0% { opacity: 1; transform: translate(var(--x), -150px); } 90% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(var(--x) * 0.1), 30px); } }
 .recap-card.active .chest-bounce { animation: chest-bounce 0.35s var(--ease-out) 0.6s 4 alternate; }
 @keyframes chest-bounce { to { transform: translateY(-6px) scale(1.06); } }
+
+/* Characters · 14×20 layered pixel art (avatar.js). Shades are mixed from each look's colours. */
+.sprite, .char-art {
+  --hair-d: color-mix(in srgb, var(--hair) 68%, #1b1530);
+  --skin-d: color-mix(in srgb, var(--skin) 80%, #8a3f2a);
+  --top-d: color-mix(in srgb, var(--top) 76%, #2e2a4f);
+  --bottom-d: color-mix(in srgb, var(--bottom) 76%, #1b1530);
+  --hat-d: color-mix(in srgb, var(--hat) 74%, #2e2a4f);
+}
+.char-art { display: block; width: 100%; height: auto; }
+.px-hair-d { fill: var(--hair-d); }
+.px-skin-d { fill: var(--skin-d); }
+.px-mouth { fill: #b4544a; }
+.px-white { fill: #fffaf0; }
+.px-top { fill: var(--top); }
+.px-top-d { fill: var(--top-d); }
+.px-cream { fill: #fff4dc; }
+.px-bottom { fill: var(--bottom); }
+.px-bottom-d { fill: var(--bottom-d); }
+.px-shoe { fill: #4a3a40; }
+.px-hat { fill: var(--hat); }
+.px-hat-d { fill: var(--hat-d); }
+.px-shades { fill: #2e2a4f; }
+.px-lens { fill: #d4eff9; }
+.px-gold { fill: #ffc83d; }
+.px-gold-d { fill: #d99a12; }
+.px-pink { fill: #f27bb0; }
+.px-pink-d { fill: #c94f88; }
+.px-leaf { fill: #5cb26b; }
+.px-red { fill: #e9573f; }
+.px-red-d { fill: #b8402c; }
+
+/* Short labels in the "Who paid" strip wrap instead of cutting off names. */
+.payers > div > span:not(.avatar) { white-space: normal; overflow-wrap: anywhere; line-height: 1.2; }
+
+/* Colour roles · party colour = each person's character top (who); category tint (what kind).
+   Tomato stays the one action colour; sun stays selection. */
+.avatar.avatar-party, .payers .avatar.avatar-party { background: var(--tone-fill); color: var(--tone-ink); }
+.pip { display: inline-block; flex: none; width: 8px; height: 8px; margin: 0 0.45rem 1px 2px; background: var(--tone, var(--panel-2)); box-shadow: 0 0 0 2px var(--line); vertical-align: middle; }
+.pip-joint { background: transparent; box-shadow: 0 0 0 2px var(--text-2); }
+.segmented button.toned .seg-pip { width: 10px; height: 10px; flex: none; background: var(--tone); box-shadow: 0 0 0 2px var(--line); }
+.segmented button.toned.on { background: var(--tone-fill); color: var(--tone-ink); box-shadow: var(--px2); }
+.segmented button.toned.on .seg-pip { background: var(--tone-ink); box-shadow: 0 0 0 2px var(--tone-ink); }
+.duel-side.party { --stage-h: calc(2.2rem + 83px); box-shadow: var(--px), inset 0 var(--stage-h) 0 0 color-mix(in srgb, var(--tone) 34%, var(--panel)), inset 0 calc(var(--stage-h) + 3px) 0 0 color-mix(in srgb, var(--tone) 70%, var(--line)); }
+.duel-side.party.zero { box-shadow: var(--px), inset 0 var(--stage-h) 0 0 color-mix(in srgb, var(--tone) 18%, var(--panel-2)), inset 0 calc(var(--stage-h) + 3px) 0 0 color-mix(in srgb, var(--tone) 40%, var(--panel-2)); }
+.row-icon { --cat: var(--panel-2); background: color-mix(in srgb, var(--cat) 40%, var(--panel)); box-shadow: var(--px2); margin: 2px; }
+.row-icon.cat-food { --cat: #f39a3d; }
+.row-icon.cat-groceries { --cat: #5cb26b; }
+.row-icon.cat-outings { --cat: #f27bb0; }
+.row-icon.cat-travel { --cat: #6cc3ef; }
+.row-icon.cat-home { --cat: #b9a6e8; }
+.row-icon.cat-other, .row-icon.cat-none { background: var(--panel-2); }
+.row-icon.fund { background: var(--sun); }
+@media (prefers-color-scheme: dark) { .row-icon { background: color-mix(in srgb, var(--cat) 52%, var(--panel)); } .row-icon.cat-other, .row-icon.cat-none { background: var(--panel-2); } .row-icon.fund { background: var(--sun); } }
+
+/* Delight · settling the month is the quest clear: the card stamps in, confetti bursts,
+   coins rain into the date-fund chest and the amount counts up. Plays once, right after settling. */
+.settled-card { position: relative; flex-wrap: wrap; }
+.settled-main { flex: 1; min-width: 0; }
+.settled-fund { flex-basis: 100%; display: flex; align-items: center; gap: 0.75rem; padding-top: 0.75rem; border-top: 3px solid color-mix(in srgb, #2e2a4f 22%, var(--leaf)); }
+.settled-fund > span:last-child { font-size: 0.9rem; line-height: 1.2; }
+.settled-chest { position: relative; display: grid; }
+.settled-card.fresh { animation: quest-in 0.55s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.settled-card .confetti { top: 30%; }
+@keyframes quest-in { from { opacity: 0; transform: scale(1.18) rotate(-2deg); } }

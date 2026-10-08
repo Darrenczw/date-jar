@@ -1,7 +1,7 @@
 {
   "name": "Date Jar",
   "short_name": "Date Jar",
-  "description": "A shared jar for the money couples spend on each other.",
+  "description": "A shared date budget for couples. Track what you spend and pay each other back.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
