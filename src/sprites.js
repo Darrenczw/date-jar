@@ -1,47 +1,6 @@
 // Pixel sprites: the honey jar (the party's HP), the two partner characters, the scene and HP bar.
 import { html, useEffect, useRef, useState } from './ui.js';
-import { Icon } from './icons.js';
-
-// ---------------------------------------------------------------- pixel helpers
-
-/** Turn a list of [x, y, color] cells into merged horizontal runs per colour. */
-function runs(cells) {
-  const byColor = new Map();
-  cells.forEach(([x, y, c]) => {
-    if (!byColor.has(c)) byColor.set(c, new Map());
-    const rows = byColor.get(c);
-    if (!rows.has(y)) rows.set(y, []);
-    rows.get(y).push(x);
-  });
-  const out = [];
-  byColor.forEach((rows, c) => {
-    let d = '';
-    rows.forEach((xs, y) => {
-      xs.sort((a, b) => a - b);
-      let i = 0;
-      while (i < xs.length) {
-        let j = i;
-        while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1) j += 1;
-        d += `M${xs[i]} ${y}h${xs[j] - xs[i] + 1}v1h${xs[i] - xs[j] - 1}z`;
-        i = j + 1;
-      }
-    });
-    out.push({ c, d });
-  });
-  return out;
-}
-
-function addOutline(cells, w, h) {
-  const filled = new Set(cells.map(([x, y]) => `${x},${y}`));
-  const outline = [];
-  for (let y = -1; y <= h; y += 1) {
-    for (let x = -1; x <= w; x += 1) {
-      if (filled.has(`${x},${y}`)) continue;
-      if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => filled.has(`${x + dx},${y + dy}`))) outline.push([x, y, 'line']);
-    }
-  }
-  return outline;
-}
+import { addOutline, runs } from './pixels.js';
 
 // ---------------------------------------------------------------- the jar
 
@@ -125,85 +84,9 @@ export function PixelJar({ left, pace = null, dayLabel = '', dropKey = null, sum
     </div>`;
 }
 
-// ---------------------------------------------------------------- characters
+// ---------------------------------------------------------------- characters (see avatar.js)
 
-// Every look shares one 10×14 body; hairstyles only change the top rows.
-const BODY = [
-  '..hhhhhh..', '.hhhhhhhh.', '.hssssssh.', '.sesssses.', '.ssssssss.', '.srssssrs.', '..ssssss..',
-  '..cccccc..', '.cccccccc.', 'sccccccccs', '.cccccccc.', '..pppppp..', '..pp..pp..', '..kk..kk..'];
-const HAIR = {
-  short: BODY,
-  bob: ['..hhhhhh..', '.hhhhhhhh.', 'hhhhhhhhhh', 'hsessssesh', 'hssssssssh', 'hsrssssrsh', 'h.ssssss.h', ...BODY.slice(7)],
-  bun: ['....hh....', '..hhhhhh..', '.hhhhhhhh.', '.sesssses.', ...BODY.slice(4)],
-  spiky: ['.h.hh.hh..', '.hhhhhhhh.', ...BODY.slice(2)],
-};
-// Accessories draw over the body: a = accessory colour, g/e = outline ink, y = sun.
-const ACCESSORY = {
-  none: [],
-  cap: ['..aaaaaa..', '.aaaaaaaaa'],
-  glasses: ['', '', '', '.geggggeg.'],
-  bow: ['.......a.a', '........a.'],
-  flower: ['........a.', '.......aya', '........a.'],
-};
-const CODES = { h: 'hair', s: 'skin', e: 'line', r: 'blush', c: 'shirt', p: 'pants', k: 'line', a: 'acc', g: 'line', y: 'acc-y' };
-
-export const AVATAR_OPTIONS = {
-  hair: [{ id: 'short', label: 'Short' }, { id: 'bob', label: 'Bob' }, { id: 'bun', label: 'Bun' }, { id: 'spiky', label: 'Spiky' }],
-  hairColor: [
-    { id: '#3b2a24', label: 'Espresso' }, { id: '#5a3a2e', label: 'Brown' }, { id: '#8a4b2a', label: 'Chestnut' },
-    { id: '#d9a441', label: 'Honey' }, { id: '#6b6b78', label: 'Ash' }, { id: '#e48aa8', label: 'Pink' }, { id: '#4f6fd1', label: 'Blue' }],
-  skin: [
-    { id: '#ffe0c4', label: 'Light' }, { id: '#f7c9a0', label: 'Fair' }, { id: '#e0a878', label: 'Tan' },
-    { id: '#b97a4f', label: 'Brown' }, { id: '#8a5634', label: 'Deep' }],
-  shirt: [
-    { id: '#ffc83d', label: 'Sun' }, { id: '#6cc3ef', label: 'Sky' }, { id: '#e9573f', label: 'Tomato' },
-    { id: '#5cb26b', label: 'Leaf' }, { id: '#b9a6e8', label: 'Lilac' }, { id: '#fff4dc', label: 'Cream' }, { id: '#4b4a7a', label: 'Indigo' }],
-  acc: [{ id: 'none', label: 'None' }, { id: 'cap', label: 'Cap' }, { id: 'glasses', label: 'Glasses' }, { id: 'bow', label: 'Bow' }, { id: 'flower', label: 'Flower' }],
-};
-
-/** The look a member starts with: the jar's creator in sun yellow, the partner in sky blue. */
-export function defaultAvatar(index = 0) {
-  return index === 0
-    ? { hair: 'short', hairColor: '#5a3a2e', skin: '#f7c9a0', shirt: '#ffc83d', acc: 'none' }
-    : { hair: 'bob', hairColor: '#5a3a2e', skin: '#f7c9a0', shirt: '#6cc3ef', acc: 'none' };
-}
-
-const partsCache = new Map();
-function spriteParts(hair, acc) {
-  const key = `${hair}|${acc}`;
-  if (partsCache.has(key)) return partsCache.get(key);
-  const grid = new Map();
-  (HAIR[hair] ?? HAIR.short).forEach((row, y) => [...row].forEach((ch, x) => { if (ch !== '.') grid.set(`${x},${y}`, [x, y, CODES[ch]]); }));
-  (ACCESSORY[acc] ?? []).forEach((row, y) => [...row].forEach((ch, x) => { if (ch !== '.') grid.set(`${x},${y}`, [x, y, CODES[ch]]); }));
-  const cells = [...grid.values()];
-  const parts = runs([...cells, ...addOutline(cells, 10, 14)]);
-  partsCache.set(key, parts);
-  return parts;
-}
-
-const MOOD_ICON = { happy: 'heart', alert: 'alert', sweat: 'drop', idle: null };
-
-/**
- * A little partner character.
- * `avatar` {hair, hairColor, skin, shirt, acc}; `mood` happy|alert|sweat|idle;
- * `say` shows a speech bubble; `action` plays a one-off move (jump|wave|cheer).
- */
-export function Sprite({ avatar, look = 'a', mood = 'idle', name, delay = 0, say = '', action = '', actionKey = 0, size = 60 }) {
-  const a = avatar ?? defaultAvatar(look === 'a' ? 0 : 1);
-  const icon = MOOD_ICON[mood];
-  const accColor = a.acc === 'cap' ? '#e9573f' : '#f27bb0';
-  const style = `--delay:${delay}ms;--hair:${a.hairColor};--skin:${a.skin};--shirt:${a.shirt};--acc:${accColor};--sprite-w:${size}px`;
-  return html`
-    <div class=${`sprite mood-${mood}`} style=${style}>
-      ${say ? html`<span class="speech" key=${actionKey} aria-live="polite">${say}</span>`
-        : icon && html`<span class="bubble" aria-hidden="true"><${Icon} name=${icon} size=${12}/></span>`}
-      <svg key=${`${action}${actionKey}`} class=${action ? `act-${action}` : ''} viewBox="-1 -1 12 16" shape-rendering="crispEdges" aria-hidden="true">
-        ${spriteParts(a.hair, a.acc).map((p) => html`<path key=${p.c} class=${`px-${p.c}`} d=${p.d}/>`)}
-      </svg>
-      ${mood === 'sweat' && html`<i class="sweat" aria-hidden="true"></i>`}
-      ${name && html`<span class="sprite-name">${name}</span>`}
-    </div>`;
-}
+export { AVATAR_OPTIONS, Sprite, defaultAvatar } from './avatar.js';
 
 // ---------------------------------------------------------------- scene + HP bar
 

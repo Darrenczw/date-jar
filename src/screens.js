@@ -1,12 +1,14 @@
 // The five main screens: Home, History, Settle, Recap, Settings.
 import { html, useEffect, useMemo, useRef, useState } from './ui.js';
 import { Icon, categoryIcon } from './icons.js';
-import { Avatar, Chip, Empty, ExpenseRow, Jar, MonthNav, Segmented, Sheet, SheetHeader, TextBox, lookFor, avatarFor, closeSheet, tight } from './components.js';
-import { AVATAR_OPTIONS, HPBar, Scene, Sprite, moodFor } from './sprites.js';
+import { Avatar, Chip, Empty, ExpenseRow, Jar, MonthNav, Segmented, Sheet, SheetHeader, TextBox, avatarFor, closeSheet, partyTone, tight } from './components.js';
+import { HPBar, Scene, Sprite, moodFor } from './sprites.js';
+import { CharacterSheet } from './character.js';
+import { CharArt } from './avatar.js';
 import {
   CATEGORIES, MODE, createInvite, dateFundBalance, defaultSettleMonth, leaveCouple, liveExpenses, me, memberName,
   monthSpent, partner, reopenMonth, setPref, settleMonth, settlementRow, signOut, toast, updateCouple,
-  updateMemberName, updateMemberAvatar, useStore, switchDemoUser, flush,
+  updateMemberName, useStore, switchDemoUser, flush, friendlyError,
 } from './store.js';
 import {
   addMonths, budgetExpenses, currentMonthKey, dayLabel, fmt, monthExpenses, monthKey, monthLabel, pace,
@@ -14,6 +16,7 @@ import {
 } from './money.js';
 import { CurrencyPicker } from './add.js';
 
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
 
@@ -50,9 +53,9 @@ function leftFrac(spent, budget) {
 
 /** What a character says when tapped, by how the month is going. */
 const LINES = {
-  happy: ['Hi there!', "We're on track!", 'Date night soon?', 'The honey looks good!', 'Yay, teamwork!', 'Hehe, hi!'],
-  alert: ['Easy there…', 'Pace ourselves?', 'Maybe a picnic date?', "Hmm, it's going fast"],
-  sweat: ['Uh oh…', 'Cook at home tonight?', 'The jar is sweating!', 'Free dates exist!'],
+  happy: ['Hi there!', "We're on track!", 'Date night soon?', 'Lots of honey left!', 'Yay, teamwork!', 'Hehe, hi!'],
+  alert: ['Slow down a bit?', 'Maybe a picnic date?', "Hmm, it's going fast", 'A cheap date next?'],
+  sweat: ['Uh oh…', 'Cook at home tonight?', 'The jar is almost empty!', 'Try a free date!'],
   idle: ['Hi!', 'Hehe'],
 };
 const pick = (list, last) => {
@@ -76,7 +79,7 @@ function Party({ s, mood, jarProps, leftLabel }) {
   useEffect(() => () => clearTimeout(timer.current), []);
   const tapChar = (m) => react(m.user_id, pick(LINES[mood] ?? LINES.idle, talk.text), talk.key % 3 === 2 ? 'spin' : 'jump');
   const char = (m, delay) => html`
-    <button class="tap-char" onClick=${() => tapChar(m)} aria-label=${`${m.user_id === mine?.user_id ? 'You' : m.display_name}: tap to say hi`}>
+    <button class="tap-char" onClick=${() => tapChar(m)} aria-label=${m.user_id === mine?.user_id ? 'Talk to your character' : `Talk to ${m.display_name}`}>
       <${Sprite} avatar=${avatarFor(m.user_id, s)} mood=${mood} name=${m.display_name} delay=${delay}
         say=${talk.who === m.user_id ? talk.text : ''} action=${talk.who === m.user_id ? talk.action : ''} actionKey=${talk.key}/>
     </button>`;
@@ -118,28 +121,28 @@ export function Home({ nav }) {
   const headline = {
     empty: 'A full jar!',
     'on-track': "We're on track!",
-    ahead: 'A little ahead of pace.',
-    hot: 'Running a bit hot…',
-    over: 'The jar ran dry.',
+    ahead: 'Spending a bit fast',
+    hot: 'Spending too fast',
+    over: 'Over budget',
   }[p.status];
 
   let detail;
-  if (p.status === 'empty') detail = 'Log your first date and watch the honey go.';
-  else if (p.status === 'over') detail = `${fmt(spent - budget, home)} past our ${fmt(budget, home)}. It happens.`;
-  else if (p.daysLeft > 0) detail = `About ${fmt(Math.floor(p.perDay), home)} a day left for us.`;
+  if (p.status === 'empty') detail = 'Nothing spent yet. Add your first date.';
+  else if (p.status === 'over') detail = `${fmt(spent - budget, home)} over our ${fmt(budget, home)} budget. That's okay.`;
+  else if (p.daysLeft > 0) detail = `We can spend about ${fmt(Math.floor(p.perDay), home)} a day.`;
   else detail = `${fmt(p.remaining, home)} left this month.`;
 
-  const summary = `${fmt(Math.max(0, budget - spent), home)} of ${fmt(budget, home)} left in the jar. ${headline} ${detail}`;
+  const summary = `${fmt(Math.max(0, budget - spent), home)} of ${fmt(budget, home)} budget left. ${headline.replace(/[!.]$/, '')}. ${detail}`;
   const showInstall = isIOS && !standalone && !s.prefs.installDismissed;
   const waiting = s.outbox.length;
 
   // Every message on Home pages through the one RPG text box (▼ = next message).
   const pages = [
-    { id: 'status', tone: `st-${p.status}`, head: headline, body: html`${detail} ${spent > 0 ? html`<span class="tb-spent">We've spent ${fmt(spent, home)} so far.</span>` : ''}` },
-    prevOpen && { id: 'settle', head: `${monthLabel(prevKey, { withYear: false })} is ready to settle`, body: 'See who gets what back from the joint account.', action: { label: 'Settle up', run: () => nav.go('settle', prevKey) } },
-    !other && MODE === 'cloud' && { id: 'invite', head: 'Invite player 2', body: 'Your partner sees every entry the moment you add it.', action: { label: 'Invite', run: () => nav.go('settings') } },
-    showInstall && { id: 'install', head: 'Add to your Home Screen', body: html`Tap <${Icon} name="share" size=${12} class="inline-icon"/> then “Add to Home Screen” to open Date Jar like an app.`, action: { label: 'Got it', run: () => setPref('installDismissed', true) } },
-    MODE === 'demo' && { id: 'demo', head: 'Demo mode', body: `Everything stays on this phone for now. Syncing with your partner is coming soon.${monthList.some((e) => e.sample) ? ' Entries tagged “sample” are examples.' : ''}` },
+    { id: 'status', tone: `st-${p.status}`, head: headline, body: html`${detail} ${spent > 0 ? html`<span class="tb-spent">Spent so far: ${fmt(spent, home)}.</span>` : ''}` },
+    prevOpen && { id: 'settle', head: `Time to settle ${monthLabel(prevKey, { withYear: false })}`, body: 'Pay each other back from the joint account.', action: { label: 'Settle up', run: () => nav.go('settle', prevKey) } },
+    !other && MODE === 'cloud' && { id: 'invite', head: 'Invite your partner', body: 'They see each expense right away.', action: { label: 'Invite', run: () => nav.go('settings') } },
+    showInstall && { id: 'install', head: 'Add to your Home Screen', body: html`Tap <${Icon} name="share" size=${12} class="inline-icon"/>, then “Add to Home Screen”. Date Jar opens like an app.`, action: { label: 'Got it', run: () => setPref('installDismissed', true) } },
+    MODE === 'demo' && { id: 'demo', head: 'Demo mode', body: `Your data stays on this phone only. Sharing with your partner comes later.${monthList.some((e) => e.sample) ? ' Items marked “sample” are examples.' : ''}` },
   ].filter(Boolean).sort((a, b) => (b.id === 'settle') - (a.id === 'settle'));
   const pageIdx = Math.min(page, pages.length - 1);
   const msg = pages[pageIdx];
@@ -148,17 +151,18 @@ export function Home({ nav }) {
     <section class="screen home">
       <header class="topbar slim">
         <h1 class="bar-title">${monthLabel(key, { withYear: false })} · Day ${p.day}</h1>
-        <button class="people" onClick=${() => nav.go('settings')} aria-label="Who's in this jar">
-          ${mine && html`<${Avatar} name=${mine.display_name} tone="you" size=${30}/>`}
-          ${other ? html`<${Avatar} name=${other.display_name} tone="partner" size=${30}/>` : html`<span class="avatar avatar-ghost" style="--size:30px"><${Icon} name="plus" size=${12}/></span>`}
+        <button class="people" onClick=${() => nav.go('settings')} aria-label="You and your partner. Open settings">
+          ${mine && html`<${Avatar} name=${mine.display_name} userId=${mine.user_id} size=${30}/>`}
+          ${other ? html`<${Avatar} name=${other.display_name} userId=${other.user_id} size=${30}/>` : html`<span class="avatar avatar-ghost" style="--size:30px"><${Icon} name="plus" size=${12}/></span>`}
         </button>
       </header>
 
       ${(!s.online || waiting > 0 || s.syncError) && html`
         <p class=${`status-pill ${!s.online ? 'offline' : ''}`} role="status">
           <${Icon} name=${!s.online ? 'offline' : 'sync'} size=${12}/>
-          ${!s.online ? `Offline${waiting ? ` · ${waiting} waiting to sync` : ''}` : waiting ? `Syncing ${waiting}…` : s.syncError}
-          ${s.online && waiting > 0 && html`<button class="link" onClick=${flush}>Retry</button>`}
+          ${!s.online ? (waiting ? `Offline. ${plural(waiting, 'change', 'changes')} will sync later.` : 'Offline. You can still add expenses.')
+            : waiting && !s.syncError ? `Syncing ${plural(waiting, 'change', 'changes')}…` : 'Could not sync. Your changes are saved on this phone.'}
+          ${s.online && (waiting > 0 || s.syncError) && html`<button class="link" onClick=${flush}>Try again</button>`}
         </p>`}
 
       <${Scene}>
@@ -167,7 +171,7 @@ export function Home({ nav }) {
       <//>
 
       <div class="hp-row">
-        <${HPBar} left=${left} budgetLeftLabel=${fmt(Math.max(0, budget - spent), home)} pace=${1 - p.timePct} paceLabel="Where we'd be at an even pace"/>
+        <${HPBar} left=${left} budgetLeftLabel=${fmt(Math.max(0, budget - spent), home)} pace=${1 - p.timePct} paceLabel="Where we should be today"/>
         <p class="hp-nums"><b data-over=${p.status === 'over'}>${tight(p.status === 'over' ? `−${fmt(spent - budget, home)}` : fmt(Math.max(0, budget - spent), home))}</b> <span>/ ${tight(fmt(budget, home))} left</span></p>
       </div>
 
@@ -181,11 +185,11 @@ export function Home({ nav }) {
           </button>`}
       </div>
 
-      <h2 class="list-label">Party this month</h2>
+      <h2 class="list-label">Who paid this month</h2>
       <div class="payers" role="list" aria-label="Who paid this month">
         ${[mine, other].filter(Boolean).map((m) => html`
           <div key=${m.user_id} role="listitem">
-            <${Avatar} name=${m.display_name} tone=${m.user_id === mine?.user_id ? 'you' : 'partner'} size=${22}/>
+            <${Avatar} name=${m.display_name} userId=${m.user_id} size=${22}/>
             <span>${m.user_id === mine?.user_id ? 'You' : m.display_name} paid</span><b>${tight(fmt(paidBy(m.user_id), home, { cents: true }))}</b>
           </div>`)}
         <div role="listitem">
@@ -195,16 +199,16 @@ export function Home({ nav }) {
       </div>
 
       ${fund > 0 && html`
-        <p class="fund-line"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span><span>Treasure chest <b>${tight(fmt(fund, home))}</b><small>Our date fund. Treat yourselves!</small></span></p>`}
+        <p class="fund-line"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span><span>Date fund <b>${tight(fmt(fund, home))}</b><small>Saved from past months. For a special date!</small></span></p>`}
 
-      <div class="list-head"><h2 class="list-label">Item log</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history')}>See all</button>`}</div>
+      <div class="list-head"><h2 class="list-label">Recent expenses</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history')}>See all</button>`}</div>
       ${recent.length === 0 ? html`
-        <${Empty} icon="jar" title="Nothing logged this month" action=${html`<button class="btn btn-primary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add our first expense</button>`}>
-          Dinner, coffee, movie night. Anything you split 50/50 goes here.
+        <${Empty} icon="jar" title="No expenses yet this month" action=${html`<button class="btn btn-primary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add first expense</button>`}>
+          Add what you spend on dates: dinner, coffee, movies. You split it 50/50.
         <//>` : html`
         <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open}/>`)}</div>`}
 
-      ${spent > 0 && html`<button class="link recap-link" onClick=${() => nav.recap(key)}>Peek at this month's recap</button>`}
+      ${spent > 0 && html`<button class="link recap-link" onClick=${() => nav.recap(key)}>See this month's recap</button>`}
     </section>`;
 }
 
@@ -245,8 +249,8 @@ export function History({ nav }) {
   return html`
     <section class="screen history">
       <${MonthNav} label=${monthLabel(key)} onPrev=${() => setKey(addMonths(key, -1))} onNext=${() => setKey(addMonths(key, 1))}
-        canNext=${key < currentMonthKey()} sub=${`${fmt(total, home)} · ${list.length} ${list.length === 1 ? 'item' : 'items'}${settled ? ' · settled' : ''}`}
-        art=${html`<${Jar} size="sm" left=${leftFrac(monthTotal, budget)} summary=${`${fmt(Math.max(0, budget - monthTotal), home)} was left in the jar`}/>`}/>
+        canNext=${key < currentMonthKey()} sub=${`${fmt(total, home)} · ${list.length} ${list.length === 1 ? 'expense' : 'expenses'}${settled ? ' · settled' : ''}`}
+        art=${html`<${Jar} size="sm" left=${leftFrac(monthTotal, budget)} summary=${`${fmt(Math.max(0, budget - monthTotal), home)} left in budget`}/>`}/>
       <div class="search-wrap">
         <${Icon} name="search" size=${12}/>
         <input type="search" placeholder="Search" value=${q} onInput=${(e) => setQ(e.target.value)} aria-label="Search expenses" autocomplete="off"/>
@@ -255,15 +259,15 @@ export function History({ nav }) {
         <${Chip} on=${who === 'all' && kind === 'all'} onClick=${() => { setWho('all'); setKind('all'); }}>All<//>
         ${mine && html`<${Chip} on=${who === mine.user_id} onClick=${() => setWho(who === mine.user_id ? 'all' : mine.user_id)}>Paid by me<//>`}
         ${other && html`<${Chip} on=${who === other.user_id} onClick=${() => setWho(who === other.user_id ? 'all' : other.user_id)}>Paid by ${other.display_name}<//>`}
-        <${Chip} on=${who === 'joint'} onClick=${() => setWho(who === 'joint' ? 'all' : 'joint')}>Joint<//>
+        <${Chip} on=${who === 'joint'} onClick=${() => setWho(who === 'joint' ? 'all' : 'joint')}>Joint account<//>
         ${hasForeign && html`<${Chip} on=${kind === 'foreign'} onClick=${() => setKind(kind === 'foreign' ? 'all' : 'foreign')}>Foreign<//>`}
-        ${hasEstimated && html`<${Chip} on=${kind === 'estimated'} onClick=${() => setKind(kind === 'estimated' ? 'all' : 'estimated')}>To confirm<//>`}
+        ${hasEstimated && html`<${Chip} on=${kind === 'estimated'} onClick=${() => setKind(kind === 'estimated' ? 'all' : 'estimated')}>Estimates<//>`}
       </div>
 
       ${days.length === 0 ? html`
-        <${Empty} icon=${filtered ? 'search' : 'history'} title=${filtered ? 'No matches' : `Nothing logged in ${monthLabel(key, { withYear: false })}`}
-          action=${!filtered && key === currentMonthKey() ? html`<button class="btn btn-primary" onClick=${nav.add}><${Icon} name="plus" size=${18}/> Add an expense</button>` : null}>
-          ${filtered ? 'Try clearing a filter or searching for something else.' : 'Expenses you add will show up here, newest first.'}
+        <${Empty} icon=${filtered ? 'search' : 'history'} title=${filtered ? 'No matches' : `No expenses in ${monthLabel(key, { withYear: false })}`}
+          action=${!filtered && key === currentMonthKey() ? html`<button class="btn btn-primary" onClick=${nav.add}><${Icon} name="plus" size=${18}/> Add expense</button>` : null}>
+          ${filtered ? 'Clear a filter or try another word.' : 'New expenses show here. Newest first.'}
         <//>` : days.map((d) => html`
         <section key=${d.date} class="day">
           <h2 class="day-head"><span>${dayLabel(d.date)}</span><span>${tight(fmt(sum(d.items), home))}</span></h2>
@@ -279,6 +283,10 @@ export function Settle({ nav, arg }) {
   const home = s.couple.home_currency;
   const [key, setKey] = useState(arg || defaultSettleMonth(s));
   useEffect(() => { if (arg) setKey(arg); }, [arg]);
+  // The month just settled on this screen: both characters cheer and the quest card plays its moment once.
+  const [fresh, setFresh] = useState(null);
+  useEffect(() => { if (!fresh) return undefined; const t = setTimeout(() => setFresh(null), 2800); return () => clearTimeout(t); }, [fresh]);
+  const cheering = fresh === key;
 
   const st = useMemo(() => settlementFor(liveExpenses(s), s.members, key), [s.expenses, s.members, key]);
   const settled = settlementRow(key, s);
@@ -293,22 +301,23 @@ export function Settle({ nav, arg }) {
 
   const copyAmount = async (amt) => {
     const ok = await copyText(String(amt));
-    toast(ok ? `Copied ${amt}` : 'Couldn’t copy. Long-press the amount instead.');
+    toast(ok ? `Copied ${amt}` : 'Can’t copy. Press and hold the amount.');
   };
+  const monthName = monthLabel(key, { withYear: false });
 
   return html`
     <section class="screen settle">
       <${MonthNav} label=${monthLabel(key)} onPrev=${() => setKey(addMonths(key, -1))} onNext=${() => setKey(addMonths(key, 1))}
-        canNext=${key < currentMonthKey()} sub=${isCurrent ? 'Still in progress' : settled ? 'Settled' : 'Ready to settle'}/>
+        canNext=${key < currentMonthKey()} sub=${isCurrent ? 'Month not over yet' : settled ? 'Settled' : 'Ready to settle'}/>
 
       ${nothing ? html`
-        <${Empty} icon="settle" title="Nothing to settle">No expenses in ${monthLabel(key, { withYear: false })}.<//>` : html`
+        <${Empty} icon="settle" title="Nothing to settle">No expenses in ${monthName}.<//>` : html`
         <${TextBox} class=${over ? 'st-over' : 'st-on-track'} more=${false}>
-          <p class="tb-head">${tight(over ? `${fmt(st.budgetSpent - budget, home)} over budget` : `${fmt(leftover, home)} left in the jar`)}</p>
-          <p>We spent ${fmt(st.budgetSpent, home)} of our ${fmt(budget, home)} in ${monthLabel(key, { withYear: false })}. Here's what to move from the joint account:</p>
+          <p class="tb-head">${tight(over ? `${fmt(st.budgetSpent - budget, home)} over budget` : `${fmt(leftover, home)} left in budget`)}</p>
+          <p>Spent ${fmt(st.budgetSpent, home)} of ${fmt(budget, home)}.<br/>Settle up: pay each of you back from the joint account.</p>
         <//>
 
-        <div class="duel" role="list" aria-label="Transfers from the joint account">
+        <div class="duel" role="list" aria-label="Pay back from the joint account">
           ${[ordered[0], null, ordered[1]].map((b, i) => {
             if (i === 1) {
               return html`<div key="mid" class="duel-mid" aria-hidden="true">
@@ -318,11 +327,12 @@ export function Settle({ nav, arg }) {
             if (!b) return html`<div key="ghost" class="duel-side ghost"><div class="sprite sprite-ghost"></div><b>Player 2</b><span>Not joined yet</span></div>`;
             const you = b.member.user_id === mine?.user_id;
             return html`
-              <div key=${b.member.user_id} role="listitem" class=${`duel-side ${b.amount === 0 ? 'zero' : ''}`}>
-                <${Sprite} avatar=${avatarFor(b.member.user_id, s)} mood=${b.amount > 0 ? 'happy' : 'idle'} delay=${you ? 0 : 400}/>
-                <span class="duel-name">Joint → ${you ? 'you' : b.member.display_name}</span>
+              <div key=${b.member.user_id} role="listitem" class=${`duel-side party ${b.amount === 0 ? 'zero' : ''}`} style=${partyTone(b.member.user_id, s).style}>
+                <${Sprite} avatar=${avatarFor(b.member.user_id, s)} mood=${b.amount > 0 || cheering ? 'happy' : 'idle'} delay=${you ? 0 : 400}
+                  action=${cheering ? 'cheer' : ''} actionKey=${cheering ? 1 : 0}/>
+                <span class="duel-name">${you ? 'You get' : `${b.member.display_name} gets`}</span>
                 <b class="duel-amt">${b.amount === 0 ? '—' : tight(fmt(b.amount, home, { cents: true }))}</b>
-                <span class="duel-sub">${b.amount === 0 ? 'nothing to move' : `${you ? 'you' : 'they'} paid ${b.count} ${b.count === 1 ? 'time' : 'times'}`}</span>
+                <span class="duel-sub">${b.amount === 0 ? 'Nothing to pay' : `Paid ${plural(b.count, 'expense', 'expenses')}`}</span>
                 ${b.amount > 0 && html`<button class="btn btn-secondary small" onClick=${() => copyAmount(b.amount.toFixed(currencyDecimals(home)))}><${Icon} name="copy" size=${12}/> Copy</button>`}
               </div>`;
           })}
@@ -331,17 +341,17 @@ export function Settle({ nav, arg }) {
         ${st.joint.length > 0 && html`
           <div class="transfer zero">
             <span class="avatar avatar-joint" style="--size:40px"><${Icon} name="joint" size=${24}/></span>
-            <div class="transfer-main"><b>${tight(fmt(st.jointTotal, home, { cents: true }))} paid straight from the account</b><span>${st.joint.length} ${st.joint.length === 1 ? 'expense' : 'expenses'} · nothing to move</span></div>
+            <div class="transfer-main"><b>${tight(`Joint account paid ${fmt(st.jointTotal, home, { cents: true })}`)}</b><span>${plural(st.joint.length, 'expense', 'expenses')} · Nothing to pay back</span></div>
           </div>`}
 
-        ${st.fundSpent > 0 && html`<p class="hint">${fmt(st.fundSpent, home)} came out of the treasure chest and doesn't count toward the budget.</p>`}
+        ${st.fundSpent > 0 && html`<p class="hint">${fmt(st.fundSpent, home)} came from the date fund. Not counted in the budget.</p>`}
 
-        ${st.estimated.some((e) => e.original_currency !== home) && html`
+        ${estimates > 0 && html`
           <div class="notice warn">
             <${Icon} name="globe" size=${18}/>
             <div>
-              <b>${st.estimated.filter((e) => e.original_currency !== home).length} foreign ${st.estimated.filter((e) => e.original_currency !== home).length === 1 ? 'charge is' : 'charges are'} still estimated</b>
-              <p>Confirm what your card actually charged so the amounts match your statement.</p>
+              <b>${estimates === 1 ? '1 amount is an estimate' : `${estimates} amounts are estimates`}</b>
+              <p>Check your card. Add the real amount.</p>
               <div class="est-list">
                 ${st.estimated.filter((e) => e.original_currency !== home).map((e) => html`
                   <button key=${e.id} class="link" onClick=${() => nav.open(e.id)}>${e.description} · ${fmt(e.original_amount, e.original_currency)}</button>`)}
@@ -350,29 +360,36 @@ export function Settle({ nav, arg }) {
           </div>`}
 
         ${settled ? html`
-          <div class="settled-card" role="status">
+          <div class=${`settled-card ${cheering ? 'fresh' : ''}`} role="status">
+            ${cheering && html`<${Confetti} count=${30}/>`}
             <span class="settled-stars" aria-hidden="true"><${Icon} name="sparkle" size=${24}/><${Icon} name="sparkle" size=${12}/></span>
-            <div>
+            <div class="settled-main">
               <b>Quest complete!</b>
-              <span>${memberName(settled.settled_by, s)} settled it on ${shortDate(settled.settled_at.slice(0, 10))}${settled.fund_contribution > 0 ? ` · +${fmt(settled.fund_contribution, home)} into the treasure chest` : ''}</span>
+              <span>Settled by ${memberName(settled.settled_by, s).replace(/^You$/, 'you')} on ${shortDate(settled.settled_at.slice(0, 10))}</span>
             </div>
+            ${settled.fund_contribution > 0 && html`
+              <div class="settled-fund">
+                <span class="settled-chest">${cheering && html`<${CoinRain} count=${10}/>`}<span class=${`fund-icon ${cheering ? 'chest-bounce' : ''}`}><${Icon} name="chest" size=${24}/></span></span>
+                <span><b class="settled-plus">+<${CountUp} value=${settled.fund_contribution} format=${(v) => fmt(v, home)} active=${cheering}/></b>to date fund</span>
+              </div>`}
           </div>
           <div class="settle-actions">
-            <button class="btn btn-secondary" onClick=${() => nav.recap(key)}><${Icon} name="sparkle" size=${12}/> See the recap</button>
+            <button class="btn btn-secondary" onClick=${() => nav.recap(key)}><${Icon} name="sparkle" size=${12}/> See recap</button>
             <button class="btn btn-quiet" onClick=${() => reopenMonth(key)}>Reopen month</button>
           </div>` : html`
-          ${leftover > 0 && html`<p class="fund-preview"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span> ${isCurrent ? `If the month ended today, ${fmt(leftover, home)} would go into the treasure chest.` : `${fmt(leftover, home)} left over goes into the treasure chest.`}</p>`}
-          <p class="hint center settle-first">First make these transfers in your banking app. Date Jar never moves money.</p>
+          ${leftover > 0 && html`<p class="fund-preview"><span class="fund-icon"><${Icon} name="chest" size=${24}/></span> ${isCurrent ? `Left so far: ${fmt(leftover, home)}. At month end, it goes to the date fund.` : `Left over: ${fmt(leftover, home)}. It goes to the date fund.`}</p>`}
+          <p class="hint center settle-first">First, move the money in your bank app. Then tap below. Date Jar does not move money.</p>
           <button class="btn btn-primary btn-block" onClick=${() => {
             const asks = [];
-            if (isCurrent) asks.push(`${monthLabel(key, { withYear: false })} isn't over yet.`);
-            if (estimates) asks.push(`${estimates} foreign ${estimates === 1 ? 'charge is' : 'charges are'} still estimated, so amounts may not match your statement.`);
+            if (isCurrent) asks.push(`${monthName} is not over yet.`);
+            if (estimates) asks.push(estimates === 1 ? '1 amount is still an estimate.' : `${estimates} amounts are still estimates.`);
             if (asks.length && !window.confirm(`${asks.join(' ')} Settle anyway?`)) return;
             settleMonth(key);
+            setFresh(key);
           }}>
-            <${Icon} name="check" size=${12}/> ${estimates ? `Settle with ${estimates} ${estimates === 1 ? 'estimate' : 'estimates'}` : `Mark ${monthLabel(key, { withYear: false })} as settled`}
+            <${Icon} name="check" size=${12}/> Mark ${monthName} as settled
           </button>
-          <button class="link recap-link" onClick=${() => nav.recap(key)}>Preview the recap</button>`}
+          <button class="link recap-link" onClick=${() => nav.recap(key)}>See recap</button>`}
       `}
     </section>`;
 }
@@ -457,23 +474,23 @@ export function Recap({ month, onClose }) {
   const other = partner(s);
   const cards = [];
 
-  cards.push({ kind: 'party', tone: 'sun', title: `${label}, in the jar`, value: r.total, format: money,
-    body: under ? `of our ${fmt(r.budget, r.home)}. ${fmt(r.budget - r.total, r.home)} to spare. Nice one, team!` : `of our ${fmt(r.budget, r.home)}. ${fmt(r.total - r.budget, r.home)} over, and that's okay.` });
+  cards.push({ kind: 'party', tone: 'sun', title: `${label}: total spent`, value: r.total, format: money,
+    body: under ? `of our ${fmt(r.budget, r.home)} budget. ${fmt(r.budget - r.total, r.home)} left. Well done, team!` : `of our ${fmt(r.budget, r.home)} budget. ${fmt(r.total - r.budget, r.home)} over. That's okay.` });
   if (r.topCat) {
     const pct = Math.round((r.topCat[1] / Math.max(r.total, 1)) * 100);
-    cards.push({ kind: 'category', tone: 'tomato', title: 'Where the honey went', big: catLabel(r.topCat[0]), icon: categoryIcon(r.topCat[0]), pct,
-      body: `${fmt(r.topCat[1], r.home)}, about ${pct}% of the month.` });
+    cards.push({ kind: 'category', tone: 'tomato', title: 'Most spent on', big: catLabel(r.topCat[0]), icon: categoryIcon(r.topCat[0]), pct,
+      body: `${fmt(r.topCat[1], r.home)}. About ${pct}% of the month.` });
   }
-  if (r.topPlace) cards.push({ kind: 'stamp', tone: 'leaf', title: r.topPlace.n > 1 ? 'Our regular' : 'Top spot', big: r.topPlace.name,
-    body: r.topPlace.n > 1 ? `${r.topPlace.n} times this month, ${fmt(r.topPlace.total, r.home)} in all.` : `${fmt(r.topPlace.total, r.home)} well spent.` });
-  if (r.topDay) cards.push({ kind: 'day', tone: 'indigo', title: 'Biggest day out', big: shortDate(r.topDay[0]), value: r.topDay[1], format: money,
-    body: r.biggest ? `Led by ${r.biggest.description}.` : 'What a day.' });
-  cards.push({ kind: 'hearts', tone: 'cream', title: 'Out together', value: r.days, format: (v) => `${Math.round(v)} ${Math.round(v) === 1 ? 'day' : 'days'}`,
-    hearts: Math.min(r.days, 31), body: `${r.list.length} shared ${r.list.length === 1 ? 'expense' : 'expenses'} in ${label}.` });
-  if (r.foreign.length) cards.push({ kind: 'travel', tone: 'sky', title: 'Abroad', big: r.foreign.join(' · '),
-    body: `We spent in ${r.foreign.length} ${r.foreign.length === 1 ? 'currency' : 'currencies'} besides ${r.home}. Bon voyage!` });
-  cards.push({ kind: 'chest', tone: 'sun', title: 'Treasure chest', value: r.fundBalance + (r.settled ? 0 : r.fund), format: money,
-    body: r.settled ? `+${fmt(r.fund, r.home)} from ${label}. Treat yourselves!` : `${fmt(r.fund, r.home)} joins once ${label} is settled. Treat yourselves!` });
+  if (r.topPlace) cards.push({ kind: 'stamp', tone: 'leaf', title: r.topPlace.n > 1 ? 'Our favourite' : 'Top expense', big: r.topPlace.name,
+    body: r.topPlace.n > 1 ? `${r.topPlace.n} times. ${fmt(r.topPlace.total, r.home)} in total.` : `${fmt(r.topPlace.total, r.home)}. Money well spent!` });
+  if (r.topDay) cards.push({ kind: 'day', tone: 'indigo', title: 'Biggest spending day', big: shortDate(r.topDay[0]), value: r.topDay[1], format: money,
+    body: r.biggest ? `Biggest item: ${r.biggest.description}.` : 'What a day!' });
+  cards.push({ kind: 'hearts', tone: 'cream', title: 'Days out together', value: r.days, format: (v) => `${Math.round(v)} ${Math.round(v) === 1 ? 'day' : 'days'}`,
+    hearts: Math.min(r.days, 31), body: `${r.list.length} ${r.list.length === 1 ? 'expense' : 'expenses'} in ${label}.` });
+  if (r.foreign.length) cards.push({ kind: 'travel', tone: 'sky', title: 'Travel', big: r.foreign.join(' · '),
+    body: `We spent in ${r.foreign.length} other ${r.foreign.length === 1 ? 'currency' : 'currencies'}. Nice trip!` });
+  cards.push({ kind: 'chest', tone: 'sun', title: 'Date fund', value: r.fundBalance + (r.settled ? 0 : r.fund), format: money,
+    body: r.settled ? `${fmt(r.fund, r.home)} added from ${label}. Enjoy a treat!` : `${fmt(r.fund, r.home)} is added when you settle ${label}.` });
 
   const [i, setI] = useState(0);
   const track = useRef(null);
@@ -503,9 +520,9 @@ export function Recap({ month, onClose }) {
   };
 
   const share = async () => {
-    const text = `${label} in our Date Jar: ${fmt(r.total, r.home)} of ${fmt(r.budget, r.home)}${r.topCat ? `, mostly ${catLabel(r.topCat[0]).toLowerCase()}` : ''}.`;
+    const text = `Date Jar, ${label}: we spent ${fmt(r.total, r.home)} of ${fmt(r.budget, r.home)}.${r.topCat ? ` Most on ${catLabel(r.topCat[0]).toLowerCase()}.` : ''}`;
     const res = await shareOrCopy({ title: 'Date Jar recap', text });
-    if (res === 'copied') toast('Copied to your clipboard');
+    if (res === 'copied') toast('Copied');
   };
 
   const art = (c, active) => {
@@ -610,7 +627,7 @@ function ExportSection() {
   };
   const copyTable = async () => {
     const tsv = [header, ...rows].map((r) => r.map(csvCell).join('\t')).join('\n');
-    toast((await copyText(tsv)) ? `Copied ${rows.length} rows. Paste into Google Sheets` : 'Couldn’t copy');
+    toast((await copyText(tsv)) ? `Copied ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}. Paste in Google Sheets.` : 'Can’t copy');
   };
 
   return html`
@@ -633,72 +650,22 @@ function ExportSection() {
 function InviteSheet({ onClose }) {
   const [code, setCode] = useState(null);
   const [err, setErr] = useState('');
-  useEffect(() => { createInvite().then(setCode).catch((e) => setErr(e.message)); }, []);
+  const make = () => { setErr(''); createInvite().then(setCode).catch((e) => setErr(friendlyError(e))); };
+  useEffect(make, []);
   const link = `${location.origin}${location.pathname}`;
   const message = `Join our Date Jar! Open ${link} and use invite code ${code}`;
   return html`
     <${Sheet} title="Invite your partner" onClose=${onClose}>
       <${SheetHeader} title="Invite your partner" onClose=${onClose}/>
       <div class="sheet-scroll invite">
-        ${err ? html`<p class="error">${err}</p>` : code ? html`
-          <p class="hint center">Send them this code. It works once and lasts 14 days.</p>
+        ${err ? html`<p class="error" role="alert">Could not make an invite code. ${err}</p><button class="btn btn-secondary btn-block" onClick=${make}>Try again</button>` : code ? html`
+          <p class="hint center">Send this code to your partner. It works once, for 14 days.</p>
           <p class="invite-code" aria-label=${`Invite code ${code.split('').join(' ')}`}>${code}</p>
           <div class="btn-col">
             <button class="btn btn-primary btn-block" onClick=${async () => { const r = await shareOrCopy({ title: 'Join our Date Jar', text: message }); if (r === 'copied') toast('Invite copied'); }}><${Icon} name="share" size=${18}/> Share invite</button>
-            <button class="btn btn-quiet" onClick=${async () => toast((await copyText(code)) ? 'Code copied' : 'Couldn’t copy')}><${Icon} name="copy" size=${18}/> Copy code</button>
-          </div>` : html`<p class="hint center">Making a code…</p>`}
+            <button class="btn btn-quiet" onClick=${async () => toast((await copyText(code)) ? 'Code copied' : 'Can’t copy')}><${Icon} name="copy" size=${18}/> Copy code</button>
+          </div>` : html`<p class="hint center">Creating code…</p>`}
       </div>
-    <//>`;
-}
-
-/** Dress up a character: hairstyle, colours and an accessory, with a live preview. */
-function CharacterSheet({ member, onClose }) {
-  const s = useStore();
-  const [look, setLook] = useState(avatarFor(member.user_id, s));
-  const [bounce, setBounce] = useState(0);
-  const you = member.user_id === s.session.userId;
-  const set = (key, value) => { setLook((a) => ({ ...a, [key]: value })); setBounce((n) => n + 1); };
-  const surprise = () => {
-    const any = (key) => AVATAR_OPTIONS[key][Math.floor(Math.random() * AVATAR_OPTIONS[key].length)].id;
-    setLook({ hair: any('hair'), hairColor: any('hairColor'), skin: any('skin'), shirt: any('shirt'), acc: any('acc') });
-    setBounce((n) => n + 1);
-  };
-  const save = () => {
-    updateMemberAvatar(member.user_id, look);
-    onClose();
-    toast(you ? 'Looking good!' : `${member.display_name} looks great!`, { tone: 'good' });
-  };
-  const swatches = (key, label) => html`
-    <div class="field-group">
-      <span class="field-label" id=${`lbl-${key}`}>${label}</span>
-      <div class="swatches" role="radiogroup" aria-labelledby=${`lbl-${key}`}>
-        ${AVATAR_OPTIONS[key].map((o) => html`
-          <button key=${o.id} type="button" role="radio" aria-checked=${look[key] === o.id} aria-label=${o.label}
-            class=${`swatch ${look[key] === o.id ? 'on' : ''}`} style=${`--sw:${o.id}`} onClick=${() => set(key, o.id)}></button>`)}
-      </div>
-    </div>`;
-  const choices = (key, label) => html`
-    <div class="field-group">
-      <span class="field-label">${label}</span>
-      <div class="chip-row" role="group" aria-label=${label}>
-        ${AVATAR_OPTIONS[key].map((o) => html`<${Chip} key=${o.id} on=${look[key] === o.id} onClick=${() => set(key, o.id)}>${o.label}<//>`)}
-      </div>
-    </div>`;
-  return html`
-    <${Sheet} title=${`Customise ${you ? 'your character' : member.display_name}`} onClose=${onClose} tall>
-      <${SheetHeader} title=${you ? 'Your character' : member.display_name} onClose=${onClose}
-        right=${html`<button class="chip" onClick=${surprise}>Surprise me</button>`}/>
-      <div class="sheet-scroll char-scroll">
-        <div class="char-stage"><${Scene} compact>
-          <div class="party-stage"><${Sprite} avatar=${look} mood="happy" name=${member.display_name} size=${96} action=${bounce ? 'jump' : ''} actionKey=${bounce}/></div>
-        <//></div>
-        ${choices('hair', 'Hairstyle')}
-        ${swatches('hairColor', 'Hair colour')}
-        ${swatches('skin', 'Skin')}
-        ${swatches('shirt', 'Shirt')}
-        ${choices('acc', 'Accessory')}
-      </div>
-      <div class="add-foot"><button class="btn btn-primary btn-block" onClick=${save}>Save look</button></div>
     <//>`;
 }
 
@@ -732,7 +699,7 @@ export function Settings({ nav }) {
         <label class="setting"><span>Your name</span><input value=${name} onInput=${(e) => setName(e.target.value)} onBlur=${saveName} maxlength="40" enterkeyhint="done"/></label>
         <div class="setting"><span>Partner</span>
           ${other ? html`<b>${other.display_name}</b>` : MODE === 'cloud' ? html`<button class="btn btn-secondary small" onClick=${() => setInvite(true)}>Invite</button>` : html`<b>—</b>`}</div>
-        ${MODE === 'demo' && other && html`<div class="setting"><span>Pretend to be ${s.session.userId === 'me' ? other.display_name : mine.display_name}</span><button class="btn btn-secondary small" onClick=${() => { switchDemoUser(); toast('Switched who is holding the phone'); }}>Switch</button></div>`}
+        ${MODE === 'demo' && other && html`<div class="setting"><span>Use the app as ${other.display_name}</span><button class="btn btn-secondary small" onClick=${() => { const next = other.display_name; switchDemoUser(); toast(`Now using the app as ${next}`); }}>Switch</button></div>`}
       </div>
 
 <h2 class="list-label">Characters</h2>
@@ -741,9 +708,9 @@ export function Settings({ nav }) {
     const editable = MODE === 'demo' || m.user_id === s.session.userId;
     return html`
       <div key=${m.user_id} class="setting char-row">
-        <span class="char-mini" aria-hidden="true"><${Sprite} avatar=${avatarFor(m.user_id, s)} size=${36}/></span>
-        <span>${m.user_id === mine?.user_id ? 'You' : m.display_name}<small>${editable ? 'Hair, colours and accessories' : 'They can change their own look'}</small></span>
-        ${editable && html`<button class="btn btn-secondary small" onClick=${() => setDressing(m)}>Customise</button>`}
+        <span class="char-mini" aria-hidden="true"><${CharArt} avatar=${avatarFor(m.user_id, s)} crop="head"/></span>
+        <span>${m.user_id === mine?.user_id ? 'You' : m.display_name}<small>${editable ? 'Hair, face, clothes, hats' : 'They can change their own look'}</small></span>
+        ${editable && html`<button class="btn btn-secondary small" onClick=${() => setDressing(m)}>Change</button>`}
       </div>`;
   })}
 </div>
@@ -752,10 +719,10 @@ export function Settings({ nav }) {
       <div class="group">
         <label class="setting"><span>Monthly budget</span>
           <span class="inline-input"><i>${home}</i><input inputmode="decimal" value=${budget} onInput=${(e) => setBudget(e.target.value.replace(/[^0-9.]/g, ''))} onBlur=${saveBudget}/></span></label>
-        <div class="setting"><span>Home currency<small>${locked ? 'Locked once you log expenses' : 'Everything is converted to this'}</small></span>
+        <div class="setting"><span>Home currency<small>${locked ? 'Can’t change after you add expenses' : 'All amounts convert to this'}</small></span>
           ${locked ? html`<b>${home}</b>` : html`<button class="btn btn-secondary small" onClick=${() => setCurPicker(true)}>${home}</button>`}</div>
-        <div class="setting"><span>Category tags<small>Optional labels when adding</small></span>
-          <button class=${`switch ${s.prefs.categories ? 'on' : ''}`} role="switch" aria-checked=${s.prefs.categories} aria-label="Category tags" onClick=${() => setPref('categories', !s.prefs.categories)}><i/></button></div>
+        <div class="setting"><span>Categories<small>Pick a type (food, travel…) when you add</small></span>
+          <button class=${`switch ${s.prefs.categories ? 'on' : ''}`} role="switch" aria-checked=${s.prefs.categories} aria-label="Categories" onClick=${() => setPref('categories', !s.prefs.categories)}><i/></button></div>
       </div>
 
       <h2 class="list-label">Export</h2>
@@ -766,11 +733,11 @@ export function Settings({ nav }) {
         ${s.session?.email && html`<div class="setting"><span>Signed in as</span><b class="mono-ish">${s.session.email}</b></div>`}
         ${MODE === 'cloud' && html`<button class="setting action" onClick=${() => signOut()}>Sign out</button>`}
         <button class="setting action danger" onClick=${() => {
-          if (window.confirm(MODE === 'demo' ? 'Erase this demo jar from the phone?' : 'Leave this jar? You will lose access to it.')) leaveCouple();
+          if (window.confirm(MODE === 'demo' ? 'Erase all demo data on this phone? You can’t undo this.' : 'Leave this jar? You will lose access to it.')) leaveCouple();
         }}>${MODE === 'demo' ? 'Erase demo data' : 'Leave this jar'}</button>
       </div>
 
-      <p class="about">Date Jar · test version${MODE === 'demo' ? ' · demo mode' : ''}<br/>Rates by open.er-api.com, refreshed daily.</p>
+      <p class="about">Date Jar · test version${MODE === 'demo' ? ' · demo mode' : ''}<br/>Exchange rates: open.er-api.com, updated daily.</p>
       ${invite && html`<${InviteSheet} onClose=${() => closeSheet(() => setInvite(false))}/>`}
       ${dressing && html`<${CharacterSheet} member=${dressing} onClose=${() => closeSheet(() => setDressing(null))}/>`}
       ${curPicker && html`<${CurrencyPicker} value=${home} home=${home} onPick=${(c) => { updateCouple({ home_currency: c }); setCurPicker(false); }} onClose=${() => closeSheet(() => setCurPicker(false))}/>`}

@@ -4,6 +4,7 @@ import { Icon, categoryIcon } from './icons.js';
 import { fmt } from './money.js';
 import { dismissToast, entryNumber, getState, memberName, reactionKey } from './store.js';
 import { ABtnFace, defaultAvatar } from './sprites.js';
+import { normalizeAvatar } from './avatar.js';
 
 export { PixelJar as Jar } from './sprites.js';
 
@@ -22,21 +23,52 @@ function tightParts(text) {
 
 // ---------------------------------------------------------------- people
 
-/** Which look a member's sprite has: the jar's creator is "a", the partner "b". */
-export function lookFor(userId, s = getState()) {
-  const idx = s.members.findIndex((m) => m.user_id === userId);
-  return idx <= 0 ? 'a' : 'b';
-}
-
 /** A member's character look, falling back to the default for their place in the jar. */
 export function avatarFor(userId, s = getState()) {
   const idx = s.members.findIndex((m) => m.user_id === userId);
   return s.members[idx]?.avatar ?? defaultAvatar(Math.max(0, idx));
 }
 
-export function Avatar({ name, tone = 'you', size = 32 }) {
+/** Relative luminance of a #rrggbb colour. */
+function lum(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const INK = '#2e2a4f';
+const CREAM = '#fff4dc';
+const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+const mix = (hex, to, t) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - t) + parseInt(to.slice(i, i + 2), 16) * t)
+  .toString(16).padStart(2, '0')).join('');
+
+/** Dark ink or cream, whichever reads better on a fill colour. */
+export function inkOn(hex) {
+  return contrast(hex, INK) >= contrast(hex, CREAM) ? INK : CREAM;
+}
+
+/** The fill nudged lighter (under ink) or darker (under cream) until text on it passes AA. */
+function textFill(hex) {
+  const ink = inkOn(hex);
+  let fill = hex;
+  for (let t = 0.1; contrast(fill, ink) < 4.5 && t <= 0.6; t += 0.1) fill = mix(hex, ink === INK ? '#ffffff' : '#1b1530', t);
+  return fill;
+}
+
+/**
+ * A member's party colour: the colour of their character's top, so the badge always matches the sprite.
+ * --tone is the exact colour (pips, scenery); --tone-fill is the text-safe version for badges and buttons.
+ */
+export function partyTone(userId, s = getState()) {
+  const idx = Math.max(0, s.members.findIndex((m) => m.user_id === userId));
+  const bg = normalizeAvatar(avatarFor(userId, s), idx).topColor;
+  const ink = inkOn(bg);
+  return { bg, ink, style: `--tone:${bg};--tone-fill:${textFill(bg)};--tone-ink:${ink}` };
+}
+
+/** A member's initial on their party colour. */
+export function Avatar({ name, userId, size = 32 }) {
   const initial = (name || '?').trim().slice(0, 1).toUpperCase();
-  return html`<span class=${`avatar avatar-${tone}`} style=${`--size:${size}px`} aria-hidden="true">${initial}</span>`;
+  return html`<span class="avatar avatar-party" style=${`--size:${size}px;${partyTone(userId).style}`} aria-hidden="true">${initial}</span>`;
 }
 
 // ---------------------------------------------------------------- dialogs
@@ -92,19 +124,20 @@ export function ExpenseRow({ e, onOpen, home }) {
   const no = String(entryNumber(e.id, s)).padStart(3, '0');
   const sub = [
     e.paid_by ? `${payer} paid` : 'Joint account',
-    foreign ? `${fmt(e.original_amount, e.original_currency)}${e.amount_confirmed ? '' : ' · estimated'}` : null,
+    foreign ? `${fmt(e.original_amount, e.original_currency)}${e.amount_confirmed ? '' : ' · estimate'}` : null,
     addedByOther ? `added by ${memberName(e.added_by, s).replace(/^You$/, 'you')}` : null,
   ].filter(Boolean).join(' · ');
   return html`
     <button class="row" onClick=${() => onOpen(e.id)}>
-      <span class=${`row-icon ${e.from_fund ? 'fund' : ''}`}><${Icon} name=${e.from_fund ? 'chest' : categoryIcon(e.category)} size=${24}/></span>
+      <span class=${`row-icon ${e.from_fund ? 'fund' : `cat-${e.category || 'none'}`}`}><${Icon} name=${e.from_fund ? 'chest' : categoryIcon(e.category)} size=${24}/></span>
       <span class="row-main">
-        <span class="row-title"><i class="row-no">No.${no}</i>${e.description}${e.sample && html`<span class="row-sample">sample</span>`}${reactions.length > 0 && html`<span class="row-react" aria-label=${`${reactions.length} ${reactions.length === 1 ? "reaction" : "reactions"}`}>${reactions.map((r, i) => html`<${Icon} key=${i} name=${r} size=${12} class=${`react-${r}`}/>`)}</span>`}</span>
-        <span class="row-sub">${sub}</span>
+        <span class="row-title"><i class="row-no">No.${no}</i><span class="row-desc">${e.description}</span>${reactions.length > 0 && html`<span class="row-react" aria-label=${`${reactions.length} ${reactions.length === 1 ? "reaction" : "reactions"}`}>${reactions.map((r, i) => html`<${Icon} key=${i} name=${r} size=${12} class=${`react-${r}`}/>`)}</span>`}</span>
+        <span class="row-sub"><i class=${`pip ${e.paid_by ? '' : 'pip-joint'}`} style=${e.paid_by ? partyTone(e.paid_by, s).style : ''} aria-hidden="true"></i>${sub}</span>
       </span>
       <span class="row-amt">
-        ${e.home_amount || !foreign ? html`<span>${tight(fmt(e.home_amount, home))}</span>` : html`<span class="pending">pending rate</span>`}
-        ${e.from_fund && html`<span class="row-fund">treasure</span>`}
+        ${e.home_amount || !foreign ? html`<span>${tight(fmt(e.home_amount, home))}</span>` : html`<span class="pending">no rate yet</span>`}
+        ${e.from_fund && html`<span class="row-fund">date fund</span>`}
+        ${e.sample && html`<span class="row-sample">sample</span>`}
       </span>
     </button>`;
 }
@@ -113,9 +146,9 @@ export function Segmented({ options, value, onChange, label, class: cls = '' }) 
   return html`
     <div class=${`segmented ${cls}`} role="radiogroup" aria-label=${label}>
       ${options.map((o) => html`
-        <button key=${o.value} role="radio" aria-checked=${o.value === value} class=${o.value === value ? 'on' : ''}
+        <button key=${o.value} role="radio" aria-checked=${o.value === value} class=${`${o.value === value ? 'on' : ''} ${o.tone ? 'toned' : ''}`} style=${o.tone?.style ?? ''}
           onClick=${() => onChange(o.value)} type="button">
-          ${o.icon && html`<${Icon} name=${o.icon} size=${12}/>`}
+          ${o.tone ? html`<i class="seg-pip" aria-hidden="true"></i>` : o.icon && html`<${Icon} name=${o.icon} size=${12}/>`}
           <span>${o.label}</span>
         </button>`)}
     </div>`;
@@ -158,13 +191,13 @@ export function Toast({ toast }) {
 export function TabBar({ tab, onTab, onAdd, badge }) {
   const item = (id, icon, label) => html`
     <button class=${`tab ${tab === id ? 'on' : ''}`} onClick=${() => onTab(id)} aria-current=${tab === id ? 'page' : undefined}>
-      <span class="tab-icon"><${Icon} name=${icon} size=${24}/>${badge === id && html`<i class="tab-badge" aria-label="needs attention"></i>`}</span>
+      <span class="tab-icon"><${Icon} name=${icon} size=${24}/>${badge === id && html`<i class="tab-badge" role="img" aria-label="ready to settle"></i>`}</span>
       <span>${label}</span>
     </button>`;
   return html`
     <nav class="tabbar" aria-label="Main">
       ${item('home', 'home', 'Home')}
-      ${item('history', 'history', 'Log')}
+      ${item('history', 'history', 'History')}
       <button class="tab-add" onClick=${onAdd} aria-label="Add expense"><${ABtnFace}/><${Icon} name="plus" size=${24}/></button>
       ${item('settle', 'settle', 'Settle')}
       ${item('settings', 'settings', 'Settings')}

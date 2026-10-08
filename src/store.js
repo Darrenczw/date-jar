@@ -110,6 +110,16 @@ function backend() {
 // ---------------------------------------------------------------- toast
 
 let toastTimer;
+/** Turn a technical error into a short message that says what to do. Never shows raw error text. */
+export function friendlyError(err) {
+  const m = String(err?.message ?? err ?? '');
+  if (/rate limit|too many/i.test(m)) return 'Too many tries. Wait a minute, then try again.';
+  if (/jwt|not authenticated|permission|row-level security|401|403/i.test(m)) return 'Please sign in again.';
+  if (/otp|token has expired|invalid.*(code|token)/i.test(m)) return 'That code did not work. Check it or ask for a new one.';
+  if (/fetch|network|load failed|offline|timeout/i.test(m)) return 'No internet connection. Check it and try again.';
+  return 'Something went wrong. Please try again.';
+}
+
 export function toast(message, { undo, tone = 'neutral', ms = 5000 } = {}) {
   clearTimeout(toastTimer);
   setState({ toast: { id: Date.now(), message, undo, tone } });

@@ -1,7 +1,7 @@
 // Quick add / edit, currency picker and expense detail.
 import { html, useEffect, useMemo, useRef, useState } from './ui.js';
 import { Icon } from './icons.js';
-import { Chip, Segmented, Sheet, SheetHeader, closeSheet, tight } from './components.js';
+import { Chip, Segmented, Sheet, SheetHeader, closeSheet, partyTone, tight } from './components.js';
 import {
   CATEGORIES, REACTIONS, reactionKey, dateFundBalance, deleteExpense, memberName, me, partner,
   react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow, entryNumber,
@@ -172,8 +172,8 @@ export function AddSheet({ editing = null, onClose }) {
   };
 
   const payerOptions = [
-    { value: mine?.user_id, label: 'Me', icon: 'user' },
-    ...(other ? [{ value: other.user_id, label: other.display_name, icon: 'user' }] : []),
+    { value: mine?.user_id, label: 'Me', tone: mine && partyTone(mine.user_id, s) },
+    ...(other ? [{ value: other.user_id, label: other.display_name, tone: partyTone(other.user_id, s) }] : []),
     { value: 'joint', label: 'Joint', icon: 'joint' },
   ];
 
@@ -198,8 +198,8 @@ export function AddSheet({ editing = null, onClose }) {
         </div>
         ${foreign && html`
           <p class="conv" aria-live="polite">
-            ${conv && num > 0 ? html`<b>≈ ${tight(fmt(override !== '' ? Number(override) || conv.home : conv.home, home))}</b> ${override !== '' ? 'card charge' : 'estimated'} · ${tight(rateLine(currency, conv.rate, home))}`
-              : num > 0 ? html`No rate saved yet. We'll convert it once you're online.`
+            ${conv && num > 0 ? html`<b>≈ ${tight(fmt(override !== '' ? Number(override) || conv.home : conv.home, home))}</b> ${override !== '' ? 'card amount' : 'estimate'} · ${tight(rateLine(currency, conv.rate, home))}`
+              : num > 0 ? html`No exchange rate yet. We convert it when you are online.`
               : html`Converted to ${home} at today's rate${rates?.asOf ? '' : ''}.`}
           </p>`}
         ${!foreign && html`<p class="conv"> </p>`}
@@ -232,28 +232,28 @@ export function AddSheet({ editing = null, onClose }) {
 
         ${foreign && html`
           <div class="field-group">
-            <label class="field-label" for="override">Card charged (${home}) · optional</label>
+            <label class="field-label" for="override">Card amount (${home}) · optional</label>
             <div class="override">
               <span>${symbolFor(home).trim()}</span>
-              <input id="override" type="text" inputmode="decimal" placeholder=${conv ? String(conv.home) : 'Actual amount on your statement'}
+              <input id="override" type="text" inputmode="decimal" placeholder=${conv ? String(conv.home) : 'Amount on your card statement'}
                 value=${override} onInput=${(e) => setOverride(e.target.value.replace(/[^0-9.]/g, ''))}
                 onFocus=${() => setTyping(true)} onBlur=${() => setTyping(false)}/>
             </div>
-            <p class="hint">Enter this once your card statement shows the real charge. Settle up uses it.</p>
+            <p class="hint">Add this when your card shows the real amount. Settle up uses it.</p>
           </div>`}
 
         ${(fundBalance > 0 || fromFund) && html`
           <div class="field-group">
-            <${Chip} on=${fromFund} onClick=${() => setFromFund(!fromFund)}><${Icon} name="chest" size=${12}/> Pay from the treasure chest (${fmt(fundBalance, home)})<//>
+            <${Chip} on=${fromFund} onClick=${() => setFromFund(!fromFund)}><${Icon} name="chest" size=${12}/> Pay from date fund (${fmt(fundBalance, home)})<//>
           </div>`}
 
-        ${sheetsSettled && html`<p class="notice"><${Icon} name="info" size=${16}/> ${monthLabel(monthKey(date))} is already settled. Saving will reopen it.</p>`}
+        ${sheetsSettled && html`<p class="notice"><${Icon} name="info" size=${16}/> ${monthLabel(monthKey(date), { withYear: false })} is already settled. Saving reopens it.</p>`}
       </div>
 
       <div class="add-foot">
         <div class="pad" role="group" aria-label="Number pad">
           ${['1', '2', '3', '4', '5', '6', '7', '8', '9', decimals ? '.' : '', '0', 'back'].map((k) => k === '' ? html`<span key="gap"/>` : html`
-            <button key=${k} class=${`key ${k === 'back' ? 'key-back' : ''}`} onClick=${() => onKey(k)} aria-label=${k === 'back' ? 'Delete' : k === '.' ? 'Decimal point' : k}>
+            <button key=${k} class=${`key ${k === 'back' ? 'key-back' : ''}`} onClick=${() => onKey(k)} aria-label=${k === 'back' ? 'Delete last digit' : k === '.' ? 'Decimal point' : k}>
               ${k === 'back' ? html`<${Icon} name="backspace" size=${24}/>` : k}
             </button>`)}
         </div>
@@ -280,8 +280,9 @@ export function DetailSheet({ id, onClose, onEdit }) {
 
   const confirmDelete = () => {
     const settledMonth = settlementRow(monthKey(e.spent_on));
-    const warn = settledMonth ? ` ${monthLabel(monthKey(e.spent_on), { withYear: false })} is already settled, so this reopens it.` : '';
-    if (window.confirm(`Delete “${e.description}”?${warn}`)) {
+    const warn = settledMonth ? ` ${monthLabel(monthKey(e.spent_on), { withYear: false })} is settled. This will reopen it.` : '';
+    // Deleting shows an Undo toast, so only ask first when it would also reopen a settled month.
+    if (!settledMonth || window.confirm(`Delete “${e.description}”?${warn}`)) {
       onClose();
       deleteExpense(e.id);
     }
@@ -296,18 +297,18 @@ export function DetailSheet({ id, onClose, onEdit }) {
       <div class="sheet-scroll detail">
         <p class="detail-no">No.${String(entryNumber(e.id, s)).padStart(3, '0')}</p>
         <h2 class="detail-title">${e.description}</h2>
-        <p class="detail-amt">${e.home_amount || !foreign ? tight(fmt(e.home_amount, home, { cents: true })) : 'Rate pending'}</p>
+        <p class="detail-amt">${e.home_amount || !foreign ? tight(fmt(e.home_amount, home, { cents: true })) : 'Waiting for rate'}</p>
         ${foreign && html`<p class="detail-orig">${fmt(e.original_amount, e.original_currency, { cents: true })} ${e.fx_rate ? `· ${rateLine(e.original_currency, Number(e.fx_rate), home)}` : ''}</p>`}
         ${foreign && !e.amount_confirmed && html`
           <p class="notice"><${Icon} name="info" size=${16}/> This amount is an estimate.
-            <button class="link" onClick=${() => onEdit(e.id)}>Enter what your card charged</button></p>`}
-        ${foreign && e.amount_confirmed && html`<p class="notice ok"><${Icon} name="check" size=${16}/> Confirmed against the card charge.</p>`}
+            <button class="link" onClick=${() => onEdit(e.id)}>Add card amount</button></p>`}
+        ${foreign && e.amount_confirmed && html`<p class="notice ok"><${Icon} name="check" size=${16}/> Matches the card amount.</p>`}
 
         <dl class="kvs">
           ${dl('Paid by', e.paid_by ? memberName(e.paid_by, s) : 'Joint account')}
           ${dl('Date', dayLabel(e.spent_on))}
           ${e.category && dl('Category', CATEGORIES.find((c) => c.id === e.category)?.label ?? e.category)}
-          ${e.from_fund && dl('Budget', 'Paid from the treasure chest')}
+          ${e.from_fund && dl('From', 'Date fund (not budget)')}
           ${dl('Added by', `${memberName(e.added_by, s)}${edited ? ` · ${edited}` : ''}`)}
         </dl>
 
@@ -320,7 +321,7 @@ export function DetailSheet({ id, onClose, onEdit }) {
 
         <div class="detail-actions">
           <button class="btn btn-secondary" onClick=${() => onEdit(e.id)}><${Icon} name="edit" size=${18}/> Edit</button>
-          <button class="btn btn-quiet danger" onClick=${confirmDelete}><${Icon} name="trash" size=${18}/> Delete</button>
+          <button class="btn btn-quiet danger" onClick=${confirmDelete}><${Icon} name="trash" size=${18}/> Delete expense</button>
         </div>
       </div>
     <//>`;
