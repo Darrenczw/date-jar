@@ -113,6 +113,7 @@ let toastTimer;
 /** Turn a technical error into a short message that says what to do. Never shows raw error text. */
 export function friendlyError(err) {
   const m = String(err?.message ?? err ?? '');
+  if (err?.code === 'send_slow' || err?.status === 504) return 'The email is slow today. Check your inbox and Junk folder in a minute. No email? Tap "Send a new code".';
   if (/rate limit|too many/i.test(m)) return 'Too many tries. Wait a minute, then try again.';
   if (/jwt|not authenticated|permission|row-level security|401|403/i.test(m)) return 'Please sign in again.';
   if (/otp|token has expired|invalid.*(code|token)/i.test(m)) return 'That code did not work. Check it or ask for a new one.';
@@ -299,7 +300,16 @@ export async function boot() {
 
 export async function sendCode(email) {
   const be = await backend();
-  await be.sendCode(email);
+  // The email server can be slow. Stop waiting after 20s: the email often still arrives.
+  let timer;
+  const slow = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('Sending the code is slow'), { code: 'send_slow' })), 20000);
+  });
+  try {
+    await Promise.race([be.sendCode(email), slow]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function verifyCode(email, code) {

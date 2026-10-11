@@ -69,6 +69,8 @@ export function Onboarding() {
       await fn();
       if (next) setStep(next);
     } catch (e) {
+      // A slow email can still arrive, so go on to the code step anyway.
+      if (next && (e?.code === 'send_slow' || e?.status === 504)) setStep(next);
       setError(friendly(e));
     } finally {
       setBusy(false);
