@@ -302,26 +302,71 @@ function enqueue(op) {
   flush();
 }
 
+// A change to a row that already exists sends only the fields it changed. Two phones changing
+// different things on one expense (one reacts, the other moves it into a pot) then both keep theirs.
+const FIXED_FIELDS = new Set(['id', 'couple_id', 'created_at', 'added_by', 'sample']);
+function changedFields(before, after) {
+  const patch = {};
+  for (const k of Object.keys(after)) {
+    if (!FIXED_FIELDS.has(k) && JSON.stringify(before[k] ?? null) !== JSON.stringify(after[k] ?? null)) patch[k] = after[k];
+  }
+  return patch;
+}
+
+/** Queue a saved expense or pot: the whole row when it is new, else only what changed since `before`. */
+function queueRow(type, row, before, extra = {}) {
+  if (MODE !== 'cloud') return;
+  enqueue(before ? { type, row, patch: changedFields(before, row), ...extra } : { type, row });
+}
+
+/** One partner's reaction, set or cleared, on top of the other's. */
+function withReaction(reactions, { user, key }) {
+  const out = { ...(reactions ?? {}) };
+  if (key) out[user] = key;
+  else delete out[user];
+  return out;
+}
+
+/** A row from the server with this phone's unsent changes to it laid on top. */
+function withPending(type, row) {
+  return state.outbox.filter((op) => op.type === type && op.row.id === row.id).reduce((r, op) => {
+    if (!op.patch) return op.row;
+    const next = { ...r, ...op.patch };
+    if (op.react) next.reactions = withReaction(r.reactions, op.react);
+    return next;
+  }, row);
+}
+
+/** Server rows plus rows this phone has made or changed that the server does not have yet. */
+function mergeQueued(type, serverRows, localRows) {
+  const onServer = new Set(serverRows.map((r) => r.id));
+  const queuedIds = new Set(state.outbox.filter((op) => op.type === type).map((op) => op.row.id));
+  const local = [...queuedIds].filter((id) => !onServer.has(id)).map((id) => localRows.find((r) => r.id === id)).filter(Boolean);
+  return [...local, ...serverRows.map((r) => withPending(type, r))];
+}
+
 function applyRemote(kind, row) {
   if (kind === 'expense' && row?.id) {
+    // The other phone's change, with anything this phone has not sent yet kept on top.
     const pending = state.outbox.some((op) => op.type === 'expense' && op.row.id === row.id);
-    if (pending) return;
+    const merged = withPending('expense', row);
     setState((s) => {
       const i = s.expenses.findIndex((e) => e.id === row.id);
-      if (i >= 0 && (s.expenses[i].updated_at || '') > (row.updated_at || '')) return {};
+      if (i >= 0 && !pending && (s.expenses[i].updated_at || '') > (row.updated_at || '')) return {};
       const expenses = s.expenses.slice();
-      if (i >= 0) expenses[i] = row;
-      else expenses.unshift(row);
+      if (i >= 0) expenses[i] = merged;
+      else expenses.unshift(merged);
       return { expenses };
     });
   } else if (kind === 'settlement' && row?.year_month) {
     setState((s) => ({ settlements: [...s.settlements.filter((r) => r.year_month !== row.year_month), row] }));
   } else if (kind === 'trip' && row?.id) {
-    if (state.outbox.some((op) => op.type === 'trip' && op.row.id === row.id)) return;
+    const pending = state.outbox.some((op) => op.type === 'trip' && op.row.id === row.id);
+    const merged = withPending('trip', row);
     setState((s) => {
       const old = s.trips.find((t) => t.id === row.id);
-      if (old && (old.updated_at || '') > (row.updated_at || '')) return {};
-      return { trips: [...s.trips.filter((t) => t.id !== row.id), row] };
+      if (old && !pending && (old.updated_at || '') > (row.updated_at || '')) return {};
+      return { trips: [...s.trips.filter((t) => t.id !== row.id), merged] };
     });
   } else if (kind === 'couple' && row?.id) {
     // An echo of an older change must not undo one still waiting to sync.
@@ -340,11 +385,9 @@ export async function refresh() {
   try {
     await flush();
     const data = await be.fetchAll(state.session.userId);
-    const queued = state.outbox.filter((op) => op.type === 'expense').map((op) => op.row);
-    const expenses = [...queued, ...data.expenses.filter((e) => !queued.some((q) => q.id === e.id))];
+    const expenses = mergeQueued('expense', data.expenses, state.expenses);
     const coupleChanged = data.couple?.id !== state.couple?.id;
-    const queuedTrips = state.outbox.filter((op) => op.type === 'trip').map((op) => op.row);
-    const trips = [...queuedTrips, ...(data.trips ?? []).filter((t) => !queuedTrips.some((q) => q.id === t.id))];
+    const trips = mergeQueued('trip', data.trips ?? [], state.trips);
     const couple = data.couple && { ...data.couple, ...pendingCouple() };
     setState({ couple, members: data.members, expenses, settlements: data.settlements, trips, syncError: null });
     if (coupleChanged) watchCouple();
@@ -570,7 +613,7 @@ export function saveExpense(draft) {
     prefs: { ...st.prefs, lastCurrency: draft.currency },
     justSaved: existing ? null : { id: row.id, at: Date.now() },
   }));
-  if (MODE === 'cloud') enqueue({ type: 'expense', row });
+  queueRow('expense', row, existing);
   if (!conv && draft.currency !== home && draft.home_override == null) {
     loadRates(home).then(() => repriceEstimates()).catch(() => {});
   }
@@ -588,7 +631,7 @@ export function repriceEstimates() {
       if (!conv) return;
       const row = { ...e, fx_rate: conv.rate, home_amount: conv.home, updated_at: new Date().toISOString() };
       setState((s) => ({ expenses: s.expenses.map((x) => (x.id === row.id ? row : x)) }));
-      if (MODE === 'cloud') enqueue({ type: 'expense', row });
+      queueRow('expense', row, e);
     });
 }
 
@@ -600,12 +643,12 @@ export function deleteExpense(id) {
   if (wasSettled) reopenMonth(k, { silent: true });
   const row = { ...existing, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString(), edited_by: state.session.userId };
   setState((s) => ({ expenses: s.expenses.map((e) => (e.id === id ? row : e)) }));
-  if (MODE === 'cloud') enqueue({ type: 'expense', row });
+  queueRow('expense', row, existing);
   toast(wasSettled ? `Deleted “${existing.description}”. ${monthLabel(k, { withYear: false })} is open again.` : `Deleted “${existing.description}”`, {
     undo: () => {
       const back = { ...existing, updated_at: new Date().toISOString() };
       setState((s) => ({ expenses: s.expenses.map((e) => (e.id === id ? back : e)) }));
-      if (MODE === 'cloud') enqueue({ type: 'expense', row: back });
+      queueRow('expense', back, row);
       // Putting the expense back restores the month exactly as it was settled.
       if (wasSettled) {
         const again = { ...wasSettled };
@@ -621,19 +664,18 @@ export function undoAdd(id) {
   if (!existing) return;
   const row = { ...existing, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   setState((s) => ({ expenses: s.expenses.map((e) => (e.id === id ? row : e)), justSaved: null }));
-  if (MODE === 'cloud') enqueue({ type: 'expense', row });
+  queueRow('expense', row, existing);
 }
 
 export function react(id, key) {
   const uid = state.session.userId;
   const existing = state.expenses.find((e) => e.id === id);
   if (!existing) return;
-  const reactions = { ...(existing.reactions ?? {}) };
-  if (reactionKey(reactions[uid]) === key) delete reactions[uid];
-  else reactions[uid] = key;
-  const row = { ...existing, reactions, updated_at: new Date().toISOString() };
+  // Only this partner's reaction changes, so both can react at the same moment.
+  const change = { user: uid, key: reactionKey(existing.reactions?.[uid]) === key ? null : key };
+  const row = { ...existing, reactions: withReaction(existing.reactions, change), updated_at: new Date().toISOString() };
   setState((s) => ({ expenses: s.expenses.map((e) => (e.id === id ? row : e)) }));
-  if (MODE === 'cloud') enqueue({ type: 'expense', row });
+  queueRow('expense', row, existing, { react: change });
 }
 
 // ---------------------------------------------------------------- trips
@@ -653,6 +695,15 @@ export function tripExpenses(id, s = state) {
   return liveExpenses(s).filter((e) => e.trip_id === id);
 }
 
+/**
+ * The pots an expense can be put in: the one it is in and the one that is on. The edit sheet and
+ * the expense screen both offer exactly these, so they never disagree. Pass null for a new expense.
+ */
+export function potChoices(e, s = state) {
+  const out = [tripById(e?.trip_id, s), activeTrip(s)].filter(Boolean);
+  return out.filter((t, i) => out.findIndex((x) => x.id === t.id) === i);
+}
+
 /** Expenses from `from` onward in this currency that are in no trip yet: they move in when a trip starts. */
 export function earlierTripExpenses(currency, from, s = state) {
   if (!currency || currency === s.couple?.home_currency) return [];
@@ -660,28 +711,32 @@ export function earlierTripExpenses(currency, from, s = state) {
 }
 
 function putTrip(trip) {
+  const before = tripById(trip.id);
   setState((s) => ({ trips: [...s.trips.filter((t) => t.id !== trip.id), trip] }));
-  if (MODE === 'cloud') enqueue({ type: 'trip', row: trip });
+  queueRow('trip', trip, before);
 }
 
-/** Start a trip and switch both phones into trip mode. Returns the trip. */
-export function startTrip({ name, budget = null, currency = null, from = todayISO() }) {
+/**
+ * Start a pot and switch both phones into pot mode. Returns the pot. A pot whose last day (`to`)
+ * is already past is made for expenses you pick yourself: it starts ended and pot mode stays off.
+ */
+export function startTrip({ name, budget = null, currency = null, from = todayISO(), to = null, moveEarlier = true }) {
   const now = new Date().toISOString();
   const home = state.couple.home_currency;
   const trip = {
     id: crypto.randomUUID(),
     couple_id: state.couple.id,
-    name: name.trim() || 'Our trip',
+    name: name.trim() || 'Our pot',
     budget: Number(budget) > 0 ? roundTo(Number(budget)) : null,
     currency: currency && currency !== home ? currency : null,
     started_on: from,
-    ended_on: null,
+    ended_on: to && to < todayISO() ? to : null,
     created_at: now,
     updated_at: now,
   };
-  const earlier = earlierTripExpenses(trip.currency, from);
+  const earlier = moveEarlier ? earlierTripExpenses(trip.currency, from) : [];
   putTrip(trip);
-  updateCouple({ active_trip_id: trip.id });
+  if (!trip.ended_on) updateCouple({ active_trip_id: trip.id });
   earlier.forEach((e) => moveToTrip(e.id, trip.id));
   return { trip, moved: earlier.length };
 }
@@ -709,7 +764,16 @@ export function moveToTrip(id, tripId) {
   if (!existing || (existing.trip_id ?? null) === tripId) return;
   const row = { ...existing, trip_id: tripId, updated_at: new Date().toISOString(), edited_by: state.session.userId };
   setState((s) => ({ expenses: s.expenses.map((e) => (e.id === id ? row : e)) }));
-  if (MODE === 'cloud') enqueue({ type: 'expense', row });
+  queueRow('expense', row, existing);
+}
+
+/** Put many expenses in a pot (or none), with one Undo that puts each back where it was. */
+export function moveManyToTrip(ids, tripId, label) {
+  const before = ids.map((id) => [id, state.expenses.find((e) => e.id === id)?.trip_id ?? null]);
+  const moved = before.filter(([, from]) => from !== tripId);
+  moved.forEach(([id]) => moveToTrip(id, tripId));
+  if (label) toast(label(moved.length), { undo: () => moved.forEach(([id, from]) => moveToTrip(id, from)) });
+  return moved.length;
 }
 
 // ---------------------------------------------------------------- settle up

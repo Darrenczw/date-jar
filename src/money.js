@@ -18,7 +18,7 @@ export const PLACES = { JPY: 'Japan', KRW: 'Korea', THB: 'Thailand', MYR: 'Malay
 export const placeFor = (code) => PLACES[code] ?? code;
 /** A friendly default trip name from where the money is spent. */
 export function tripNameFor(code, home) {
-  return code && code !== home && PLACES[code] ? `${PLACES[code].replace(/^the /, '')} trip` : 'Our trip';
+  return code && code !== home && PLACES[code] ? `${PLACES[code].replace(/^the /, '')} trip` : 'Our pot';
 }
 
 export function currencyDecimals(code) {

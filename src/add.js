@@ -7,6 +7,7 @@ import {
   react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow, entryNumber, guessCategory,
   activeTrip, tripById, startTrip, moveToTrip, setPref,
 } from './store.js';
+import { PotChoice } from './trips.js';
 import { convert, cachedRates, loadRates, knownCurrencies } from './fx.js';
 import {
   POPULAR_CURRENCIES, currencyDecimals, currencyName, dayLabel, fmt, symbolFor, todayISO, roundTo, monthKey, monthLabel, tripNameFor,
@@ -114,7 +115,6 @@ export function AddSheet({ editing = null, onClose }) {
   const [currency, setCurrency] = useState(() => editing?.original_currency ?? (trip ? (trip.currency ?? home) : tripCurrency(s, home)));
   // New expenses go into the trip that is on; one tap takes this one out.
   const [tripId, setTripId] = useState(editing ? (editing.trip_id ?? null) : (trip?.id ?? null));
-  const tripChoice = tripById(editing?.trip_id, s) ?? trip;
   const [description, setDescription] = useState(editing?.description ?? '');
   const [category, setCategory] = useState(editing?.category ?? null);
   // The app picks the category from the name until you pick one yourself; your pick always wins.
@@ -273,7 +273,7 @@ export function AddSheet({ editing = null, onClose }) {
             <${Icon} name="travel" size=${18}/>
             <div>
               <b>Travelling?</b>
-              <p>Start a trip so this does not use your monthly date budget.</p>
+              <p>Start a pot for the trip so this does not use your monthly date budget.</p>
               <div class="btn-row">
                 <button class="btn btn-secondary small" onClick=${startHere}>Start ${tripNameFor(currency, home)}</button>
                 <button class="btn btn-quiet small" onClick=${() => setPref('noTripFor', [...(s.prefs.noTripFor ?? []), currency])}>Not a trip</button>
@@ -320,12 +320,7 @@ export function AddSheet({ editing = null, onClose }) {
             <p class="hint">Add this when your card shows the real amount. Settle up uses it.</p>
           </div>`}
 
-        ${tripChoice && html`
-          <div class="field-group">
-            <${Chip} on=${tripId === tripChoice.id} onClick=${() => setTripId(tripId === tripChoice.id ? null : tripChoice.id)}
-              aria-label=${`Part of ${tripChoice.name}`}><${Icon} name="travel" size=${12}/> <span>In ${tripChoice.name}</span><//>
-            ${tripId !== tripChoice.id && html`<p class="hint">Not in the trip: it uses the monthly budget.</p>`}
-          </div>`}
+        <${PotChoice} e=${editing} value=${tripId} onPick=${setTripId}/>
 
         ${(fundBalance > 0 || fromFund) && html`
           <div class="field-group">
@@ -370,11 +365,10 @@ export function DetailSheet({ id, onClose, onEdit }) {
   };
 
   const inTrip = tripById(e.trip_id, s);
-  const onTrip = activeTrip(s);
   const moveTrip = (to) => {
     const from = e.trip_id ?? null;
     moveToTrip(e.id, to);
-    toast(to ? `Moved into ${tripById(to, s)?.name}` : `Taken out of ${inTrip?.name ?? 'the trip'}`, { undo: () => moveToTrip(e.id, from) });
+    toast(to ? `Moved into ${tripById(to, s)?.name}` : `Taken out of ${inTrip?.name ?? 'the pot'}`, { undo: () => moveToTrip(e.id, from) });
   };
   const edited = e.edited_by ? `Edited by ${memberName(e.edited_by, s)}` : null;
   const dl = (label, value) => html`<div class="kv"><dt>${label}</dt><dd>${value}</dd></div>`;
@@ -397,13 +391,11 @@ export function DetailSheet({ id, onClose, onEdit }) {
           ${dl('Date', dayLabel(e.spent_on))}
           ${e.category && dl('Category', CATEGORIES.find((c) => c.id === e.category)?.label ?? e.category)}
           ${e.from_fund && dl('From', 'Date fund (not budget)')}
-          ${inTrip && dl('Trip', `${inTrip.name} (not budget)`)}
+          ${inTrip && dl('Pot', `${inTrip.name} (not budget)`)}
           ${dl('Added by', `${memberName(e.added_by, s)}${edited ? ` · ${edited}` : ''}`)}
         </dl>
 
-        ${(inTrip || onTrip) && html`<p class="trip-move">${inTrip
-          ? html`<button class="link" onClick=${() => moveTrip(null)}>Take out of ${inTrip.name}</button>`
-          : html`<button class="link" onClick=${() => moveTrip(onTrip.id)}>Move into ${onTrip.name}</button>`}</p>`}
+        <${PotChoice} e=${e} value=${e.trip_id ?? null} onPick=${moveTrip}/>
 
         <div class="reactions" role="group" aria-label="React">
           ${REACTIONS.map((r) => html`

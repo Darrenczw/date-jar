@@ -135,7 +135,8 @@ export function TextBox({ children, class: cls = '', more = true }) {
 
 // ---------------------------------------------------------------- rows
 
-export function ExpenseRow({ e, onOpen, home, showTrip = true }) {
+/** One expense. In Select mode (`selected` is true or false) a tap picks it instead of opening it. */
+export function ExpenseRow({ e, onOpen, home, showTrip = true, selected = null }) {
   const s = getState();
   const foreign = e.original_currency !== home;
   const reactions = Object.values(e.reactions ?? {}).map(reactionKey);
@@ -151,8 +152,9 @@ export function ExpenseRow({ e, onOpen, home, showTrip = true }) {
     `No.${no}`,
   ].filter(Boolean).join(' · ');
   return html`
-    <button class="row" onClick=${() => onOpen(e.id)}>
-      <span class=${`row-icon ${e.from_fund ? 'fund' : `cat-${e.category || 'none'}`}`}><${Icon} name=${e.from_fund ? 'chest' : categoryIcon(e.category)} size=${24}/></span>
+    <button class=${`row ${selected ? 'picked' : ''}`} onClick=${() => onOpen(e.id)} aria-pressed=${selected === null ? undefined : selected}>
+      ${selected !== null ? html`<span class=${`row-icon row-check ${selected ? 'on' : ''}`} aria-hidden="true">${selected && html`<${Icon} name="check" size=${20}/>`}</span>`
+        : html`<span class=${`row-icon ${e.from_fund ? 'fund' : `cat-${e.category || 'none'}`}`}><${Icon} name=${e.from_fund ? 'chest' : categoryIcon(e.category)} size=${24}/></span>`}
       <span class="row-main">
         <span class="row-title"><span class="row-desc">${e.description}</span>${reactions.length > 0 && html`<span class="row-react" aria-label=${`${reactions.length} ${reactions.length === 1 ? "reaction" : "reactions"}`}>${reactions.map((r, i) => html`<${Icon} key=${i} name=${r} size=${12} class=${`react-${r}`}/>`)}</span>`}</span>
         <span class="row-sub"><i class=${`pip ${e.paid_by ? '' : 'pip-joint'}`} style=${e.paid_by ? partyTone(e.paid_by, s).style : ''} aria-hidden="true"></i>${sub}</span>
@@ -161,7 +163,7 @@ export function ExpenseRow({ e, onOpen, home, showTrip = true }) {
         ${e.home_amount || !foreign ? html`<span>${tight(fmt(e.home_amount, home))}</span>` : html`<span class="pending">no rate yet</span>`}
         ${e.from_fund && html`<span class="row-fund">date fund</span>`}
         ${estimate && html`<span class="row-tag row-est">estimate</span>`}
-        ${showTrip && e.trip_id && html`<span class="row-tag">trip</span>`}
+        ${showTrip && e.trip_id && html`<span class="row-tag">pot</span>`}
         ${e.sample && html`<span class="row-tag">sample</span>`}
       </span>
     </button>`;

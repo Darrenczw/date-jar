@@ -135,7 +135,7 @@ input::placeholder { color: var(--text-2); opacity: 0.8; }
   .app { background: var(--paper); box-shadow: var(--px); }
 }
 
-.screen { padding-top: 0.5rem; animation: pop 0.24s steps(3) both; }
+.screen { padding-top: 0.5rem; animation: pop 0.24s steps(3) backwards; }
 @keyframes pop { from { opacity: 0; transform: translateY(6px); } }
 
 .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0 0.9rem; }
@@ -724,7 +724,7 @@ dialog.sheet::backdrop { animation: fade 0.3s ease-out both; }
 dialog.sheet.closing::backdrop { animation: fade-out 0.23s ease-in forwards; }
 @keyframes sheet-out { to { transform: translateY(100%); } }
 @keyframes fade-out { to { opacity: 0; } }
-.screen { animation: pop 0.24s var(--ease-out) both; }
+.screen { animation: pop 0.24s var(--ease-out) backwards; }
 .btn, .chip, .tab-add, .nudge, .reactions button { transition: transform 0.12s var(--ease-out), background-color 0.15s ease; }
 .hp-fill { transition: transform 0.6s var(--ease-out); }
 
@@ -985,7 +985,29 @@ dialog.sheet.closing::backdrop { animation: fade-out 0.23s ease-in forwards; }
 .trip-link { display: flex; align-items: center; justify-content: center; gap: 0.4rem; margin: 0.9rem auto 0; }
 .trip-ask { margin: 0.2rem 3px 0.9rem; }
 .trip-ask .btn-row .btn { flex: 0 1 auto; }
-.trip-move { margin: 0.1rem 0 0.9rem; text-align: center; }
 .setting.action > span { align-items: center; text-align: center; }
 .setting.trip-row .icon { color: var(--text-2); flex: none; }
 .trip-sheet > .hint { margin: 0 3px 1rem; }
+
+/* ------------------------------------------------------------ select mode (History) */
+
+.search-row { display: flex; align-items: flex-start; gap: 0.5rem; }
+.search-row .search-wrap { flex: 1; min-width: 0; }
+.select-btn-toggle { flex: none; min-height: 2.8rem; margin-top: 3px; }
+.select-btn-toggle[aria-pressed="true"] { background: var(--sun); color: #2e2a4f; }
+.select-hint { margin: 0 3px 0.6rem; }
+.select-hint .link { display: inline; min-height: 0; padding: 0; margin-left: 0.3rem; }
+.row.picked { background: var(--panel-2); }
+.row-check { background: var(--panel); box-shadow: var(--px2); color: #2e2a4f; }
+.row-check.on { background: var(--sun); }
+.history:has(.select-bar) { padding-bottom: 5.5rem; }
+.select-bar {
+  position: fixed; left: 50%; bottom: calc(var(--tab-h) + 0.9rem + env(safe-area-inset-bottom)); z-index: 30;
+  transform: translateX(-50%); width: min(calc(100% - 2rem), 28rem);
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.6rem 0.6rem 0.6rem 1rem; background: var(--panel); box-shadow: var(--px), 0 6px 0 0 rgb(0 0 0 / 0.18);
+}
+.select-bar b { font-family: var(--font-pixel); font-size: 1rem; white-space: nowrap; }
+.select-bar .btn-row { flex-wrap: nowrap; }
+.select-bar .btn-row .btn { flex: none; }
+.pot-choice .hint { margin-top: 0.35rem; }

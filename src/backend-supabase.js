@@ -24,6 +24,27 @@ function check({ data, error }) {
   return data;
 }
 
+/**
+ * Save an expense or pot. A new row is sent whole; a change sends only the fields it changed,
+ * so it cannot undo what the other phone changed on the same row in the meantime.
+ */
+async function saveRow(c, table, op) {
+  if (!op.patch) return check(await c.from(table).upsert(op.row));
+  const patch = { ...op.patch };
+  if (op.react) {
+    // Set or clear this partner's reaction on top of whatever the other partner has.
+    const cur = check(await c.from(table).select('reactions').eq('id', op.row.id).maybeSingle());
+    const reactions = { ...(cur?.reactions ?? {}) };
+    if (op.react.key) reactions[op.react.user] = op.react.key;
+    else delete reactions[op.react.user];
+    patch.reactions = reactions;
+  }
+  const saved = check(await c.from(table).update(patch).eq('id', op.row.id).select('id'));
+  // Not on the server yet (its first save never arrived): send the whole row.
+  if (!saved?.length) return check(await c.from(table).upsert(op.row));
+  return saved;
+}
+
 export const cloud = {
   mode: 'cloud',
 
@@ -97,11 +118,11 @@ export const cloud = {
     const c = await sb();
     switch (op.type) {
       case 'expense':
-        return check(await c.from('expenses').upsert(op.row));
+        return saveRow(c, 'expenses', op);
       case 'settlement':
         return check(await c.from('settlements').upsert(op.row));
       case 'trip':
-        return check(await c.from('trips').upsert(op.row));
+        return saveRow(c, 'trips', op);
       case 'couple': {
         const { id, ...fields } = op.row;
         return check(await c.from('couples').update(fields).eq('id', id));

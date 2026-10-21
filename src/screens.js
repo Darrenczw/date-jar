@@ -9,14 +9,14 @@ import {
   CATEGORIES, MODE, createInvite, dateFundBalance, defaultSettleMonth, leaveCouple, liveExpenses, me, memberName,
   monthSpent, partner, reopenMonth, setPref, settleMonth, settlementRow, signOut, toast, updateCouple,
   updateMemberName, useStore, switchDemoUser, flush, friendlyError, onlySamples, changeHomeCurrency, removeSamples,
-  activeTrip, endTrip, tripById, tripExpenses,
+  activeTrip, endTrip, moveManyToTrip, tripById, tripExpenses,
 } from './store.js';
 import {
   addMonths, budgetExpenses, currentMonthKey, dayLabel, fmt, monthExpenses, monthKey, monthLabel, pace,
   roundTo, settlementFor, shortDate, sum, todayISO, currencyDecimals, placeFor,
 } from './money.js';
 import { CurrencyPicker } from './add.js';
-import { TripSheet, tripDay, tripRange } from './trips.js';
+import { PotPickSheet, TripSheet, tripDay, tripRange } from './trips.js';
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -103,7 +103,7 @@ function HowItWorks() {
       <li><span><b>The jar</b> and the Budget bar show what is left this month. The ▼ <i>today</i> mark is where it should be today.</span></li>
       <li><span><b>Settle up</b> at month end: each of you gets paid back from the joint account.</span></li>
       <li><span><b>Money left over</b> goes to the date fund, for a special date.</span></li>
-      <li><span><b>Going away?</b> Start a trip. It has its own jar and does not use the monthly budget.</span></li>
+      <li><span><b>Going away, or saving for something big?</b> Start a pot. It has its own jar and budget, outside the monthly one.</span></li>
     </ol>
     <p class="hint how-note"><b>Estimate:</b> a foreign amount at today's rate. Add what your card charged to make it exact.</p>`;
 }
@@ -156,17 +156,17 @@ function TripHome({ s, trip, nav, onView }) {
   const jointTotal = sum(list.filter((e) => !e.paid_by));
   const recent = list.slice().sort((a, b) => b.spent_on.localeCompare(a.spent_on) || (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 5);
   const perDay = Math.round(spent / day);
-  const summary = `${trip.name}, day ${day}. ${fmt(spent, home)} spent${budget ? ` of a ${fmt(budget, home)} trip budget` : ''}.`;
+  const summary = `${trip.name}, day ${day}. ${fmt(spent, home)} spent${budget ? ` of a ${fmt(budget, home)} pot budget` : ''}.`;
 
   const pages = [
     { id: 'trip', tone: `st-${status}`,
-      head: status === 'over' ? 'Over the trip budget' : status === 'hot' ? 'Trip budget almost used' : `Day ${day}. Have fun!`,
+      head: status === 'over' ? 'Over the pot budget' : status === 'hot' ? 'Pot budget almost used' : `Day ${day}. Have fun!`,
       // The amount under the jar is the trip total (no budget) or what is left (budget): say the other number here.
       big: spent <= 0 ? null : budget ? `${fmt(spent, home)} spent` : `About ${fmt(perDay, home)} a day`,
-      body: spent <= 0 ? 'Add what you spend. It goes in this trip.'
+      body: spent <= 0 ? 'Add what you spend. It goes in this pot.'
         : budget ? `About ${fmt(perDay, home)} a day so far.` : `So far, over ${plural(day, 'day', 'days')}. Your monthly date budget is not touched.` },
-    { id: 'note', head: 'Not in the monthly budget', body: 'The trip has its own jar. At month end you still pay each other back as usual.' },
-    { id: 'end', head: 'Back home?', body: 'End the trip. New expenses use the monthly budget again.', action: { label: 'End trip', run: endTrip } },
+    { id: 'note', head: 'Not in the monthly budget', body: 'The pot has its own jar. At month end you still pay each other back as usual.' },
+    { id: 'end', head: 'All done?', body: 'End the pot. New expenses use the monthly budget again.', action: { label: 'End pot', run: endTrip } },
   ];
   const msg = pages[Math.min(page, pages.length - 1)];
 
@@ -190,10 +190,10 @@ function TripHome({ s, trip, nav, onView }) {
       <div class="hp-row">
         ${budget > 0 ? html`
           <${HPBar} left=${left} budgetLeftLabel=${fmt(Math.max(0, budget - spent), home)}/>
-          <div class="hp-foot"><button class="link what-link" onClick=${() => setEditing(true)}>Edit trip</button>
-            <p class="hp-nums"><b data-over=${spent > budget}>${tight(spent > budget ? fmt(spent - budget, home) : fmt(budget - spent, home))}</b> <span>${spent > budget ? html`over the ${tight(fmt(budget, home))} trip budget` : html`/ ${tight(fmt(budget, home))} left`}</span></p></div>` : html`
-          <div class="hp-foot"><button class="link what-link" onClick=${() => setEditing(true)}>Add a trip budget</button>
-            <p class="hp-nums"><b>${tight(fmt(spent, home))}</b> <span>spent on this trip</span></p></div>`}
+          <div class="hp-foot"><button class="link what-link" onClick=${() => setEditing(true)}>Edit pot</button>
+            <p class="hp-nums"><b data-over=${spent > budget}>${tight(spent > budget ? fmt(spent - budget, home) : fmt(budget - spent, home))}</b> <span>${spent > budget ? html`over the ${tight(fmt(budget, home))} pot budget` : html`/ ${tight(fmt(budget, home))} left`}</span></p></div>` : html`
+          <div class="hp-foot"><button class="link what-link" onClick=${() => setEditing(true)}>Add a pot budget</button>
+            <p class="hp-nums"><b>${tight(fmt(spent, home))}</b> <span>spent in this pot</span></p></div>`}
       </div>
 
       <div class=${`textbox paged ${msg.tone ?? ''}`} aria-live="polite">
@@ -206,8 +206,8 @@ function TripHome({ s, trip, nav, onView }) {
         </button>
       </div>
 
-      ${list.length > 0 && html`<h2 class="list-label">Who paid on this trip</h2>
-      <div class="payers" role="list" aria-label="Who paid on this trip">
+      ${list.length > 0 && html`<h2 class="list-label">Who paid in this pot</h2>
+      <div class="payers" role="list" aria-label="Who paid in this pot">
         ${[mine, other].filter(Boolean).map((m) => html`
           <div key=${m.user_id} role="listitem">
             <${Avatar} name=${m.display_name} userId=${m.user_id} size=${22}/>
@@ -219,9 +219,9 @@ function TripHome({ s, trip, nav, onView }) {
         </div>
       </div>`}
 
-      <div class="list-head"><h2 class="list-label">Trip expenses</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history', `trip:${trip.id}`)}>See all</button>`}</div>
+      <div class="list-head"><h2 class="list-label">Pot expenses</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history', `trip:${trip.id}`)}>See all</button>`}</div>
       ${recent.length === 0 ? html`
-        <${Empty} icon="travel" title="No trip expenses yet" action=${html`<button class="btn btn-secondary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add expense</button>`}>
+        <${Empty} icon="travel" title="Nothing in this pot yet" action=${html`<button class="btn btn-secondary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add expense</button>`}>
           Everything you add now goes in ${trip.name}.
         <//>` : html`
         <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open} showTrip=${false}/>`)}</div>`}
@@ -358,7 +358,7 @@ export function Home({ nav }) {
         <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open}/>`)}</div>`}
 
       ${spent > 0 && html`<button class="link recap-link" onClick=${() => nav.recap(key)}>See this month's recap</button>`}
-      ${!trip && html`<button class="link trip-link" onClick=${() => setStarting(true)}><${Icon} name="travel" size=${12}/> Going away? Start a trip</button>`}
+      ${!trip && html`<button class="link trip-link" onClick=${() => setStarting(true)}><${Icon} name="travel" size=${12}/> Going away? Start a pot</button>`}
       ${how && html`<${HowSheet} onClose=${() => closeSheet(() => setHow(false))}/>`}
       ${starting && html`<${TripSheet} onClose=${() => closeSheet(() => setStarting(false))}/>`}
     </section>`;
@@ -403,11 +403,14 @@ export function History({ nav, arg }) {
   const [kind, setKind] = useState('all');
   const [cat, setCat] = useState(null);
   const [editTrip, setEditTrip] = useState(false);
+  // Select mode: pick expenses to put in a pot or take out of one. null when off.
+  const [picked, setPicked] = useState(null);
+  const [potPick, setPotPick] = useState(false);
   const mine = me(s);
   const other = partner(s);
   // #/history/trip:<id> shows one whole trip, across months.
   const trip = arg?.startsWith('trip:') ? tripById(arg.slice(5), s) : null;
-  useEffect(() => { setQ(''); setWho('all'); setKind('all'); setCat(null); }, [arg]);
+  useEffect(() => { setQ(''); setWho('all'); setKind('all'); setCat(null); setPicked(null); }, [arg]);
 
   const all = trip ? tripExpenses(trip.id, s) : monthExpenses(liveExpenses(s), key);
   const monthTrips = trip ? [] : [...new Set(all.map((e) => e.trip_id).filter(Boolean))].map((id) => tripById(id, s)).filter(Boolean);
@@ -434,6 +437,15 @@ export function History({ nav, arg }) {
   const hasEstimated = all.some((e) => !e.amount_confirmed);
   const budget = Number(s.couple.monthly_budget);
   const monthTotal = monthSpent(key, s);
+  const selecting = picked !== null;
+  const pickedList = selecting ? list.filter((e) => picked.includes(e.id)) : [];
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const allPicked = selecting && list.length > 0 && list.every((e) => picked.includes(e.id));
+  const takeOut = () => {
+    const ids = pickedList.map((e) => e.id);
+    setPicked(null);
+    moveManyToTrip(ids, null, (n) => `${n} ${n === 1 ? 'expense' : 'expenses'} taken out of ${n === 1 ? 'its pot' : 'their pots'}.`);
+  };
 
   return html`
     <section class="screen history">
@@ -441,7 +453,7 @@ export function History({ nav, arg }) {
         <div class="month-nav trip-nav">
           <button class="icon-btn" onClick=${() => nav.go('history')} aria-label="Back to months"><${Icon} name="back"/></button>
           <div class="month-nav-label">
-            ${trip.budget > 0 && html`<${Jar} size="sm" left=${leftFrac(sum(all), Number(trip.budget))} summary=${`${fmt(Math.max(0, trip.budget - sum(all)), home)} left in the trip budget`}/>`}
+            ${trip.budget > 0 && html`<${Jar} size="sm" left=${leftFrac(sum(all), Number(trip.budget))} summary=${`${fmt(Math.max(0, trip.budget - sum(all)), home)} left in the pot budget`}/>`}
             <div><h1>${trip.name}</h1><p>${`${tripRange(trip)} · ${fmt(total, home)} · ${plural(list.length, 'expense', 'expenses')}`}</p></div>
           </div>
           <button class="icon-btn" onClick=${() => setEditTrip(true)} aria-label=${`Edit ${trip.name}`}><${Icon} name="edit"/></button>
@@ -449,10 +461,15 @@ export function History({ nav, arg }) {
         canNext=${key < currentMonthKey()} sub=${`${fmt(total, home)} · ${list.length} ${list.length === 1 ? 'expense' : 'expenses'}${settled ? ' · settled' : ''}`}
         art=${html`<${Jar} size="sm" left=${leftFrac(monthTotal, budget)} summary=${`${fmt(Math.max(0, budget - monthTotal), home)} left in budget`}/>`}/>`}
       <${WhereItWent} list=${base} home=${home} selected=${cat} onPick=${setCat}/>
-      <div class="search-wrap">
-        <${Icon} name="search" size=${12}/>
-        <input type="search" placeholder="Search" value=${q} onInput=${(e) => setQ(e.target.value)} aria-label="Search expenses" autocomplete="off"/>
+      <div class="search-row">
+        <div class="search-wrap">
+          <${Icon} name="search" size=${12}/>
+          <input type="search" placeholder="Search" value=${q} onInput=${(e) => setQ(e.target.value)} aria-label="Search expenses" autocomplete="off"/>
+        </div>
+        ${all.length > 0 && html`<button class="btn btn-quiet small select-btn-toggle" aria-pressed=${selecting}
+          onClick=${() => setPicked(selecting ? null : [])}>${selecting ? 'Done' : 'Select'}</button>`}
       </div>
+      ${selecting && html`<p class="hint select-hint">Tap expenses to pick them, then move them into a pot. <button class="link" onClick=${() => setPicked(allPicked ? [] : list.map((e) => e.id))}>${allPicked ? 'Clear' : 'Pick all shown'}</button></p>`}
       <div class="chip-row scroll" role="group" aria-label="Filter">
         <${Chip} on=${who === 'all' && kind === 'all' && !cat} onClick=${() => { setWho('all'); setKind('all'); setCat(null); }}>All<//>
         ${monthTrips.map((t) => html`<${Chip} key=${t.id} class="content" onClick=${() => nav.go('history', `trip:${t.id}`)} aria-label=${`Show all of ${t.name}`}><${Icon} name="travel" size=${12}/> ${t.name}<//>`)}
@@ -471,8 +488,18 @@ export function History({ nav, arg }) {
         <//>` : days.map((d) => html`
         <section key=${d.date} class="day">
           <h2 class="day-head"><span>${dayLabel(d.date)}</span><span>${tight(fmt(sum(d.items), home))}</span></h2>
-          <div class="rows">${d.items.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open} showTrip=${!trip}/>`)}</div>
+          <div class="rows">${d.items.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${selecting ? toggle : nav.open} showTrip=${!trip}
+            selected=${selecting ? picked.includes(e.id) : null}/>`)}</div>
         </section>`)}
+      ${selecting && html`
+        <div class="select-bar" role="region" aria-label="Picked expenses">
+          <b>${pickedList.length} picked</b>
+          <div class="btn-row">
+            ${pickedList.some((e) => e.trip_id) && html`<button class="btn btn-quiet small" onClick=${takeOut}>Take out</button>`}
+            <button class="btn btn-primary small" disabled=${!pickedList.length} onClick=${() => setPotPick(true)}>Move to pot</button>
+          </div>
+        </div>`}
+      ${potPick && html`<${PotPickSheet} ids=${pickedList.map((e) => e.id)} onClose=${() => closeSheet(() => setPotPick(false))} onDone=${() => setPicked(null)}/>`}
       ${editTrip && trip && html`<${TripSheet} trip=${trip} onClose=${() => closeSheet(() => setEditTrip(false))}/>`}
     </section>`;
 }
@@ -642,7 +669,7 @@ export function Settle({ nav, arg }) {
           </div>`}
 
         ${st.fundSpent > 0 && html`<p class="hint">${fmt(st.fundSpent, home)} came from the date fund. Not counted in the budget.</p>`}
-        ${st.tripSpent > 0 && html`<p class="hint">${fmt(st.tripSpent, home)} was spent on trips. It is not in the budget, but you pay each other back for it as usual.</p>`}
+        ${st.tripSpent > 0 && html`<p class="hint">${fmt(st.tripSpent, home)} was spent from pots. It is not in the budget, but you pay each other back for it as usual.</p>`}
 
         ${state === 'due' && estimates > 0 && html`<p class="notice"><${Icon} name="globe" size=${16}/> ${estimates === 1 ? '1 amount is an estimate.' : `${estimates} amounts are estimates.`} You can fix ${estimates === 1 ? 'it' : 'them'} in the next step.</p>`}
         ${state === 'progress' && estimates > 0 && html`
@@ -891,7 +918,7 @@ const csvCell = (v) => {
 function buildRows(s, from, to, tripId = null) {
   const home = s.couple.home_currency;
   const list = liveExpenses(s).filter((e) => (tripId ? e.trip_id === tripId : e.spent_on >= from && e.spent_on <= to)).sort((a, b) => a.spent_on.localeCompare(b.spent_on));
-  const header = ['Date', 'Description', 'Category', 'Trip', 'Paid by', 'Added by', 'Original amount', 'Original currency', 'Exchange rate', `Amount (${home})`, 'Amount confirmed', 'From date fund', 'Month settled'];
+  const header = ['Date', 'Description', 'Category', 'Pot', 'Paid by', 'Added by', 'Original amount', 'Original currency', 'Exchange rate', `Amount (${home})`, 'Amount confirmed', 'From date fund', 'Month settled'];
   const rows = list.map((e) => [
     e.spent_on, e.description, CATEGORIES.find((c) => c.id === e.category)?.label ?? '', tripById(e.trip_id, s)?.name ?? '',
     e.paid_by ? memberName(e.paid_by, s, { you: false }) : 'Joint account', memberName(e.added_by, s, { you: false }),
@@ -942,9 +969,9 @@ function ExportSection() {
     <div class="export">
       <${Segmented} label="Date range" value=${range} onChange=${setRange} class="wrap"
         options=${[{ value: 'this', label: 'This month' }, { value: 'last', label: 'Last month' }, { value: 'custom', label: 'Custom' }, { value: 'all', label: 'All time' },
-          ...(trips.length ? [{ value: 'trip', label: 'One trip' }] : [])]}/>
+          ...(trips.length ? [{ value: 'trip', label: 'One pot' }] : [])]}/>
       ${range === 'trip' && html`
-        <div class="chip-row" role="group" aria-label="Trip to export">
+        <div class="chip-row" role="group" aria-label="Pot to export">
           ${trips.map((t) => html`<${Chip} key=${t.id} class="content" on=${t.id === tripId} onClick=${() => setTripId(t.id)}>${t.name}<//>`)}
         </div>`}
       ${range === 'custom' && html`
@@ -952,7 +979,7 @@ function ExportSection() {
           <label>From<input type="date" value=${from} min=${first} onInput=${(e) => e.target.value && setFrom(e.target.value)}/></label>
           <label>To<input type="date" value=${to} onInput=${(e) => e.target.value && setTo(e.target.value)}/></label>
         </div>`}
-      <p class="hint">${rows.length} ${rows.length === 1 ? 'expense' : 'expenses'} in this ${range === 'trip' ? 'trip' : 'range'}.</p>
+      <p class="hint">${rows.length} ${rows.length === 1 ? 'expense' : 'expenses'} in this ${range === 'trip' ? 'pot' : 'range'}.</p>
       <div class="btn-row">
         <button class="btn btn-secondary" disabled=${!rows.length} onClick=${copyTable}><${Icon} name="copy" size=${18}/> Copy for Google Sheets</button>
         <button class="btn btn-secondary" disabled=${!rows.length} onClick=${exportCsv}><${Icon} name="download" size=${18}/> Save as CSV</button>
@@ -1048,13 +1075,13 @@ export function Settings({ nav, arg }) {
           <span class=${`switch ${s.prefs.categories ? 'on' : ''}`} aria-hidden="true"><i/></span></button>
       </div>
 
-      <h2 class="list-label">Trips</h2>
+      <h2 class="list-label">Pots</h2>
       <div class="group">
         ${trip ? html`
           <div class="setting"><span>${trip.name}<small>${`${tripRange(trip)} · ${tripTotal(trip)}`}</small></span>
             <button class="btn btn-secondary small" onClick=${() => setTripEdit(trip)}>Edit</button></div>
-          <button class="setting action" onClick=${endTrip}><span>End trip<small>New expenses use the monthly budget again</small></span></button>` : html`
-          <button class="setting action" onClick=${() => setTripEdit('new')}><span>Start a trip<small>It has its own jar and does not use the monthly budget</small></span></button>`}
+          <button class="setting action" onClick=${endTrip}><span>End pot<small>New expenses use the monthly budget again</small></span></button>` : html`
+          <button class="setting action" onClick=${() => setTripEdit('new')}><span>Start a pot<small>For a trip or a big plan. It has its own budget, outside the monthly one</small></span></button>`}
         ${pastTrips.map((t) => html`
           <button key=${t.id} class="setting trip-row" onClick=${() => nav.go('history', `trip:${t.id}`)}>
             <span>${t.name}<small>${`${tripRange(t)} · ${tripTotal(t)}`}</small></span><${Icon} name="next" size=${12}/></button>`)}
