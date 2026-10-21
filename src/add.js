@@ -87,7 +87,7 @@ export function CurrencyPicker({ value, home, onPick, onClose }) {
   return html`
     <${Sheet} title="Choose currency" onClose=${onClose} tall>
       <${SheetHeader} title="Currency" onClose=${onClose}/>
-      <div class="search-wrap">
+      <div class="search-wrap in-sheet">
         <${Icon} name="search" size=${18}/>
         <input type="search" placeholder="Search currency or country" value=${q} onInput=${(e) => setQ(e.target.value)} autocomplete="off" autocapitalize="off" aria-label="Search currencies"/>
       </div>
@@ -134,6 +134,21 @@ export function AddSheet({ editing = null, onClose }) {
   const chips = useMemo(() => suggestions(s, 6), []);
 
   const onKey = (k) => setAmount((cur) => pressKey(cur, k, decimals));
+  // A hardware keyboard types into the pad too (unless a text field has focus).
+  const saveRef = useRef(null);
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea, select')) return;
+      if (/^[0-9]$/.test(e.key)) onKey(e.key);
+      else if ((e.key === '.' || e.key === ',') && decimals) onKey('.');
+      else if (e.key === 'Backspace') onKey('back');
+      else if (e.key === 'Enter') saveRef.current?.();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [decimals]);
 
   const changeCurrency = (c) => {
     setCurrency(c);
@@ -153,6 +168,7 @@ export function AddSheet({ editing = null, onClose }) {
       || date !== editing.spent_on || category !== (editing.category ?? null) || paidBy !== (editing.paid_by ?? 'joint')
     : amount !== '' || description.trim() !== '';
   const requestClose = () => (dirty ? setAsking(true) : onClose());
+  saveRef.current = () => canSave && save();
   const save = () => {
     if (!canSave) return;
     const fallback = category ? CATEGORIES.find((c) => c.id === category)?.label : 'Shared expense';
@@ -172,7 +188,8 @@ export function AddSheet({ editing = null, onClose }) {
     if (editing) {
       toast('Changes saved');
     } else {
-      toast(`Added ${row.description} · ${row.original_currency !== home ? `${fmt(row.original_amount, row.original_currency)} (≈ ${fmt(row.home_amount, home)})` : fmt(row.home_amount, home)}`, {
+      toast(`Added ${row.description}`, {
+        amount: row.original_currency !== home ? `${fmt(row.original_amount, row.original_currency)} ≈ ${fmt(row.home_amount, home)}` : fmt(row.home_amount, home),
         undo: () => undoAdd(row.id),
       });
     }
@@ -267,7 +284,7 @@ export function AddSheet({ editing = null, onClose }) {
             </button>`)}
         </div>
         <button class="btn btn-primary btn-block save" disabled=${!canSave} onClick=${save}>
-          ${typing ? 'Done' : editing ? 'Save changes' : canSave ? html`<span>${tight(`Save ${fmt(num, currency)}`)}</span>` : 'Enter an amount'}
+          ${editing ? 'Save changes' : canSave ? html`<span>${tight(`Save ${fmt(num, currency)}`)}</span>` : 'Enter an amount'}
         </button>
       </div>
       ${picker && html`<${CurrencyPicker} value=${currency} home=${home} onPick=${changeCurrency} onClose=${() => closeSheet(() => setPicker(false))}/>`}
@@ -319,8 +336,8 @@ export function DetailSheet({ id, onClose, onEdit }) {
 
         <div class="reactions" role="group" aria-label="React">
           ${REACTIONS.map((r) => html`
-            <button key=${r.key} class=${`react-${r.key} ${mine === r.key ? "on" : ""}`} aria-pressed=${mine === r.key} aria-label=${r.label}
-              onClick=${() => react(e.id, r.key)}><${Icon} name=${r.key} size=${24}/></button>`)}
+            <button key=${r.key} class=${`react-${r.key} ${mine === r.key ? "on" : ""}`} aria-pressed=${mine === r.key}
+              onClick=${() => react(e.id, r.key)}><${Icon} name=${r.key} size=${24}/><span>${r.label}</span></button>`)}
         </div>
         ${counts.length > 0 && html`<p class="hint center">${counts.map(([u, r]) => `${memberName(u, s)}: ${reactionLabel(r)}`).join(" · ")}</p>`}
 

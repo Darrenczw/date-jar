@@ -121,9 +121,9 @@ export function friendlyError(err) {
   return 'Something went wrong. Please try again.';
 }
 
-export function toast(message, { undo, tone = 'neutral', ms } = {}) {
+export function toast(message, { undo, tone = 'neutral', ms, amount } = {}) {
   clearTimeout(toastTimer);
-  setState({ toast: { id: Date.now(), message, undo, tone } });
+  setState({ toast: { id: Date.now(), message, amount, undo, tone } });
   // Undo stays longer: people log on the move and may look away.
   toastTimer = setTimeout(() => setState({ toast: null }), ms ?? (undo ? 8000 : 4000));
 }
@@ -277,23 +277,39 @@ function watchCouple() {
   });
 }
 
+// With no saved sign-in, the first screen depends on the check, but never waits longer than this.
+const RESTORE_WAIT_MS = 4000;
+
 export async function boot() {
-  const be = await backend();
-  try {
-    const session = await be.restore();
-    setState({ session });
-  } catch { /* offline: keep cached session */ }
-  setState({ ready: true });
+  // Open from what is saved on this phone. Checking the sign-in can take many seconds on a weak
+  // network (it may renew an expired sign-in first), so it runs after Home shows.
+  const saved = MODE === 'demo' || !!state.session;
+  if (saved) setState({ ready: true });
   if (state.couple) loadRates(state.couple.home_currency).catch(() => {});
-  if (MODE === 'cloud' && state.session) {
-    watchCouple();
-    refresh();
+
+  const be = await backend();
+  const restoring = be.restore().then(
+    (session) => {
+      if (session) setState({ session });
+      // Supabase rejected the saved sign-in: ask again, but keep this phone's data and outbox.
+      else if (state.session) setState((s) => ({ session: null, prefs: { ...s.prefs, lastEmail: s.session.email ?? s.prefs.lastEmail } }));
+    },
+    () => { /* network problem: keep the saved sign-in */ },
+  );
+  if (!saved) {
+    await Promise.race([restoring, new Promise((r) => setTimeout(r, RESTORE_WAIT_MS))]);
+    setState({ ready: true });
   }
   window.addEventListener('online', () => { setState({ online: true }); refresh(); });
   window.addEventListener('offline', () => setState({ online: false }));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refresh();
   });
+  await restoring;
+  if (MODE === 'cloud' && state.session) {
+    watchCouple();
+    refresh();
+  }
 }
 
 // ---------------------------------------------------------------- auth & couple
@@ -315,8 +331,12 @@ export async function sendCode(email) {
 export async function verifyCode(email, code) {
   const be = await backend();
   const session = await be.verifyCode(email, code);
-  setState({ session, couple: null, members: [], expenses: [], settlements: [], outbox: [] });
+  // Signing back in as a member of the saved jar keeps unsent changes; anyone else starts clean.
+  const same = state.couple && state.members.some((m) => m.user_id === session.userId);
+  if (same) setState({ session });
+  else setState({ session, couple: null, members: [], expenses: [], settlements: [], outbox: [] });
   await refresh();
+  if (same) watchCouple();
 }
 
 export async function signOut() {
@@ -594,8 +614,9 @@ export function changeHomeCurrency(currency) {
 export function removeSamples() {
   const expenses = state.expenses.filter((e) => !e.sample);
   const months = new Set(expenses.filter((e) => !e.deleted_at).map((e) => monthKey(e.spent_on)));
+  const before = { expenses: state.expenses, settlements: state.settlements };
   setState({ expenses, settlements: state.settlements.filter((r) => months.has(r.year_month)) });
-  toast('Sample expenses removed');
+  toast('Sample expenses removed', { undo: () => setState(before) });
 }
 
 // ---------------------------------------------------------------- sample data (demo only)
@@ -623,7 +644,9 @@ function seedSample() {
     [cur, today - 1, 'Coffee', 'food', 12.4, home, M],
     [cur, today, 'Dinner', 'food', 68, home, P],
   ].filter(([key, day]) => key !== cur || day >= 1);
-  const fallbackRates = { JPY: 0.0089 };
+  // Offline first run: rough SGD-based rates so sample yen look right in any home currency.
+  const PER_SGD = { SGD: 1, GBP: 0.58, USD: 0.77, EUR: 0.69, MYR: 3.4, AUD: 1.17, NZD: 1.28, HKD: 6, CAD: 1.05, JPY: 113, IDR: 12100, THB: 25, PHP: 43, INR: 64, KRW: 1050, TWD: 24.5, CNY: 5.5 };
+  const fallbackRates = { JPY: (PER_SGD[home] ?? 1) / PER_SGD.JPY };
   const now = Date.now();
   const expenses = items.map(([key, day, description, category, amount, currency, paid], i) => {
     const conv = convert(amount, currency, home) ?? { rate: fallbackRates[currency] ?? 1, home: roundTo(amount * (fallbackRates[currency] ?? 1)) };

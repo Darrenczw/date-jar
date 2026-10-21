@@ -1,14 +1,13 @@
 // Cloud backend: Supabase auth (email code), Postgres tables, realtime.
 // Loaded lazily so demo mode never downloads the Supabase client.
+// The client is vendored (not a CDN) so it is cached with the app: it loads offline and in China.
 
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-
-const CLIENT_URL = 'https://esm.sh/@supabase/supabase-js@2.117.2?bundle';
+import { createClient, isAuthApiError } from '../vendor/supabase.js';
 
 let client = null;
 async function sb() {
   if (client) return client;
-  const { createClient } = await import(CLIENT_URL);
   client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'datejar.auth' },
   });
@@ -28,11 +27,17 @@ function check({ data, error }) {
 export const cloud = {
   mode: 'cloud',
 
+  /**
+   * The saved sign-in, renewed if it has expired. Returns null only when there is none
+   * or Supabase rejects it. A network problem throws, so the caller keeps its saved sign-in.
+   */
   async restore() {
     const c = await sb();
-    const { data } = await c.auth.getSession();
+    const { data, error } = await c.auth.getSession();
     const user = data?.session?.user;
-    return user ? { userId: user.id, email: user.email } : null;
+    if (user) return { userId: user.id, email: user.email };
+    if (error && !isAuthApiError(error)) throw error;
+    return null;
   },
 
   async sendCode(email) {

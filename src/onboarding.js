@@ -50,7 +50,7 @@ export function Onboarding() {
   const s = useStore();
   const signedIn = MODE === 'demo' || !!s.session;
   const [step, setStep] = useState(signedIn ? 'choose' : 'email');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(s.couple ? s.prefs.lastEmail ?? '' : '');
   const [code, setCode] = useState('');
   const [myName, setMyName] = useState('');
   const [partnerName, setPartnerName] = useState('');
@@ -82,7 +82,7 @@ export function Onboarding() {
 
   const body = {
     email: html`
-      <${Hero} title="Date Jar" sub="A shared date budget for couples."/>
+      <${Hero} title="Date Jar" sub=${s.couple ? 'Please sign in again. Your expenses are safe on this phone.' : 'A shared date budget for couples.'}/>
       <form class="form" onSubmit=${(e) => { e.preventDefault(); run(() => sendCode(email.trim()), 'code'); }}>
         <${Field} label="Your email" hint="We email you a sign-in code. No password needed.">
           <input type="email" required autocomplete="email" inputmode="email" autocapitalize="off" placeholder="you@example.com" value=${email} onInput=${(e) => setEmail(e.target.value)}/>

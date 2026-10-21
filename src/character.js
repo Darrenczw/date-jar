@@ -63,7 +63,7 @@ export function CharacterSheet({ member, onClose }) {
         ${AVATAR_OPTIONS[key].map((o) => html`
           <button key=${o.id} type="button" role="radio" aria-checked=${look[key] === o.id} tabIndex=${radioTab(look[key] === o.id)}
             class=${`look-tile ${look[key] === o.id ? 'on' : ''}`} onClick=${() => set(key, o.id)}>
-            <span class=${`look-art look-art-${crop}`}><${CharArt} avatar=${{ ...look, [key]: o.id }} crop=${crop}/></span>
+            <span class=${`look-art look-art-${crop}`}><${CharArt} avatar=${{ ...look, ...(key === 'hair' ? { hat: 'none' } : {}), [key]: o.id }} crop=${crop}/></span>
             <span class="look-name">${o.label}</span>
           </button>`)}
       </div>
@@ -84,6 +84,6 @@ export function CharacterSheet({ member, onClose }) {
         </div>
         ${sections.map(([key, label, kind]) => (kind === 'colours' ? swatches(key, label) : tiles(key, label, kind)))}
       </div>
-      <div class="add-foot"><button class="btn btn-primary btn-block" onClick=${save}>Save</button></div>
+      <div class="add-foot"><button class="btn btn-primary btn-block" disabled=${!dirty} onClick=${save}>${dirty ? 'Save' : 'No changes yet'}</button></div>
     <//>`;
 }

@@ -17,8 +17,10 @@ export function tight(text) {
   return html`<span class="money" role="text" aria-label=${label}><span aria-hidden="true">${tightParts(label)}</span></span>`;
 }
 
+// Only amounts are tightened and kept on one line; the words around them (often the couple's own) still wrap.
 function tightParts(text) {
-  return String(text).split(/([.,])/).map((part, i) => (part === '.' || part === ',' ? html`<span key=${i} class="sep">${part}</span>` : part));
+  return String(text).split(/(\S*\d\S*)/).map((chunk, i) => (i % 2 === 0 ? chunk : html`<span key=${i} class="num">${
+    chunk.split(/([.,])/).map((part, j) => (part === '.' || part === ',' ? html`<span key=${j} class="sep">${part}</span>` : part))}</span>`));
 }
 
 // ---------------------------------------------------------------- people
@@ -224,7 +226,8 @@ export function Toast({ toast }) {
   if (!toast) return null;
   return html`
     <div class=${`toast toast-${toast.tone}`} role="status" aria-live="polite" key=${toast.id}>
-      <span>${tight(toast.message)}</span>
+      <span class="toast-msg">${tight(toast.message)}</span>
+      ${toast.amount && html`<b class="toast-amt">${tight(toast.amount)}</b>`}
       ${toast.undo && html`<button onClick=${() => { toast.undo(); dismissToast(); }}>Undo</button>`}
     </div>`;
 }

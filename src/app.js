@@ -76,7 +76,8 @@ function Splash() {
 function App() {
   const s = useStore();
   if (!s.ready) return html`<${Splash}/>`;
-  if (!s.couple) return html`<${Onboarding}/>`;
+  // A cloud jar whose sign-in was rejected asks to sign in again; its data stays on this phone.
+  if (!s.couple || (MODE === 'cloud' && !s.session)) return html`<${Onboarding}/>`;
   return html`<${Shell}/>`;
 }
 
