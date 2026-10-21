@@ -1,6 +1,6 @@
 // Offline shell: app files are cached on first load and refreshed in the background.
 // Bump VERSION whenever you publish a new build so phones pick it up.
-const VERSION = 'v13';
+const VERSION = 'v14';
 const CACHE = `date-jar-${VERSION}`;
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon.svg',
@@ -9,8 +9,12 @@ const SHELL = [
   'src/backend-supabase.js', 'vendor/supabase.js',
 ];
 
+// GitHub Pages lets browsers keep files for 10 minutes. Skip that copy, or a new
+// version can be installed with old files.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(SHELL.map((path) => new Request(path, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -33,7 +37,8 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.open(CACHE).then(async (c) => {
       const cached = await c.match(req, { ignoreSearch: true });
-      const fresh = fetch(req).then((r) => { if (r.ok) c.put(req, r.clone()); return r; }).catch(() => cached);
+      // Ask the server if the file changed (cheap when it has not), not the browser's 10-minute copy.
+      const fresh = fetch(req.url, { cache: 'no-cache' }).then((r) => { if (r.ok) c.put(req, r.clone()); return r; }).catch(() => cached);
       return cached ?? fresh;
     }),
   );
