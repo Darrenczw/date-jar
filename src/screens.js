@@ -9,14 +9,14 @@ import {
   CATEGORIES, MODE, createInvite, dateFundBalance, defaultSettleMonth, leaveCouple, liveExpenses, me, memberName,
   monthSpent, partner, reopenMonth, setPref, settleMonth, settlementRow, signOut, toast, updateCouple,
   updateMemberName, useStore, switchDemoUser, flush, friendlyError, onlySamples, changeHomeCurrency, removeSamples,
-  activeTrip, endTrip, moveManyToTrip, tripById, tripExpenses,
+  activeTrip, endTrip, tripById, tripExpenses,
 } from './store.js';
 import {
   addMonths, budgetExpenses, currentMonthKey, dayLabel, fmt, monthExpenses, monthKey, monthLabel, pace,
   roundTo, settlementFor, shortDate, sum, todayISO, currencyDecimals, placeFor,
 } from './money.js';
 import { CurrencyPicker } from './add.js';
-import { PotPickSheet, TripSheet, tripDay, tripRange } from './trips.js';
+import { PotPicker, TripSheet, tripDay, tripRange } from './trips.js';
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -103,7 +103,7 @@ function HowItWorks() {
       <li><span><b>The jar</b> and the Budget bar show what is left this month. The ▼ <i>today</i> mark is where it should be today.</span></li>
       <li><span><b>Settle up</b> at month end: each of you gets paid back from the joint account.</span></li>
       <li><span><b>Money left over</b> goes to the date fund, for a special date.</span></li>
-      <li><span><b>Going away, or saving for something big?</b> Start a pot. It has its own jar and budget, outside the monthly one.</span></li>
+      <li><span><b>Pots</b> keep a trip or a big plan apart. They have their own budget and do not use the monthly one.</span></li>
     </ol>
     <p class="hint how-note"><b>Estimate:</b> a foreign amount at today's rate. Add what your card charged to make it exact.</p>`;
 }
@@ -134,7 +134,7 @@ function SyncPill({ s }) {
 /** While a trip is on, Home shows the trip or the month. */
 function ViewSwitch({ trip, view, onView }) {
   return html`<${Segmented} class="view-switch" label="Show on Home" value=${view} onChange=${onView}
-    options=${[{ value: 'trip', label: trip.name, icon: 'travel' }, { value: 'month', label: monthLabel(currentMonthKey(), { withYear: false }), icon: 'calendar' }]}/>`;
+    options=${[{ value: 'trip', label: trip.name, icon: 'pot' }, { value: 'month', label: monthLabel(currentMonthKey(), { withYear: false }), icon: 'calendar' }]}/>`;
 }
 
 /** Home during a trip: the trip's own jar, who paid on the trip and its expenses. */
@@ -165,8 +165,8 @@ function TripHome({ s, trip, nav, onView }) {
       big: spent <= 0 ? null : budget ? `${fmt(spent, home)} spent` : `About ${fmt(perDay, home)} a day`,
       body: spent <= 0 ? 'Add what you spend. It goes in this pot.'
         : budget ? `About ${fmt(perDay, home)} a day so far.` : `So far, over ${plural(day, 'day', 'days')}. Your monthly date budget is not touched.` },
-    { id: 'note', head: 'Not in the monthly budget', body: 'The pot has its own jar. At month end you still pay each other back as usual.' },
-    { id: 'end', head: 'All done?', body: 'End the pot. New expenses use the monthly budget again.', action: { label: 'End pot', run: endTrip } },
+    { id: 'note', head: 'Not in the monthly budget', body: 'This pot has its own budget. At month end you still pay each other back as usual.' },
+    { id: 'end', head: 'All done?', body: 'Close the pot. New expenses use the monthly budget again.', action: { label: 'Close pot', run: endTrip } },
   ];
   const msg = pages[Math.min(page, pages.length - 1)];
 
@@ -193,7 +193,7 @@ function TripHome({ s, trip, nav, onView }) {
           <div class="hp-foot"><button class="link what-link" onClick=${() => setEditing(true)}>Edit pot</button>
             <p class="hp-nums"><b data-over=${spent > budget}>${tight(spent > budget ? fmt(spent - budget, home) : fmt(budget - spent, home))}</b> <span>${spent > budget ? html`over the ${tight(fmt(budget, home))} pot budget` : html`/ ${tight(fmt(budget, home))} left`}</span></p></div>` : html`
           <div class="hp-foot"><button class="link what-link" onClick=${() => setEditing(true)}>Add a pot budget</button>
-            <p class="hp-nums"><b>${tight(fmt(spent, home))}</b> <span>spent in this pot</span></p></div>`}
+            <p class="hp-nums"><b>${tight(fmt(spent, home))}</b> <span>in this pot</span></p></div>`}
       </div>
 
       <div class=${`textbox paged ${msg.tone ?? ''}`} aria-live="polite">
@@ -206,8 +206,8 @@ function TripHome({ s, trip, nav, onView }) {
         </button>
       </div>
 
-      ${list.length > 0 && html`<h2 class="list-label">Who paid in this pot</h2>
-      <div class="payers" role="list" aria-label="Who paid in this pot">
+      ${list.length > 0 && html`<h2 class="list-label">Who paid for this pot</h2>
+      <div class="payers" role="list" aria-label="Who paid for this pot">
         ${[mine, other].filter(Boolean).map((m) => html`
           <div key=${m.user_id} role="listitem">
             <${Avatar} name=${m.display_name} userId=${m.user_id} size=${22}/>
@@ -219,9 +219,9 @@ function TripHome({ s, trip, nav, onView }) {
         </div>
       </div>`}
 
-      <div class="list-head"><h2 class="list-label">Pot expenses</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history', `trip:${trip.id}`)}>See all</button>`}</div>
+      <div class="list-head"><h2 class="list-label">In this pot</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history', `trip:${trip.id}`)}>See all</button>`}</div>
       ${recent.length === 0 ? html`
-        <${Empty} icon="travel" title="Nothing in this pot yet" action=${html`<button class="btn btn-secondary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add expense</button>`}>
+        <${Empty} icon="pot" title="Nothing in this pot yet" action=${html`<button class="btn btn-secondary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add expense</button>`}>
           Everything you add now goes in ${trip.name}.
         <//>` : html`
         <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open} showTrip=${false}/>`)}</div>`}
@@ -358,7 +358,7 @@ export function Home({ nav }) {
         <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open}/>`)}</div>`}
 
       ${spent > 0 && html`<button class="link recap-link" onClick=${() => nav.recap(key)}>See this month's recap</button>`}
-      ${!trip && html`<button class="link trip-link" onClick=${() => setStarting(true)}><${Icon} name="travel" size=${12}/> Going away? Start a pot</button>`}
+      ${!trip && html`<button class="link trip-link" onClick=${() => setStarting(true)}><${Icon} name="pot" size=${12}/> Trip or big plan? Open a pot</button>`}
       ${how && html`<${HowSheet} onClose=${() => closeSheet(() => setHow(false))}/>`}
       ${starting && html`<${TripSheet} onClose=${() => closeSheet(() => setStarting(false))}/>`}
     </section>`;
@@ -403,14 +403,17 @@ export function History({ nav, arg }) {
   const [kind, setKind] = useState('all');
   const [cat, setCat] = useState(null);
   const [editTrip, setEditTrip] = useState(false);
-  // Select mode: pick expenses to put in a pot or take out of one. null when off.
+  // Select mode: tap expenses (or a whole day), then "Add to pot". Null when not selecting.
   const [picked, setPicked] = useState(null);
-  const [potPick, setPotPick] = useState(false);
+  const [potSheet, setPotSheet] = useState(false);
   const mine = me(s);
   const other = partner(s);
-  // #/history/trip:<id> shows one whole trip, across months.
+  // #/history/trip:<id> shows one whole pot, across months.
   const trip = arg?.startsWith('trip:') ? tripById(arg.slice(5), s) : null;
   useEffect(() => { setQ(''); setWho('all'); setKind('all'); setCat(null); setPicked(null); }, [arg]);
+  const togglePick = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const pickDay = (items, all) => setPicked((p) => (all ? p.filter((id) => !items.some((e) => e.id === id)) : [...new Set([...p, ...items.map((e) => e.id)])]));
+  const pickedList = picked ? liveExpenses(s).filter((e) => picked.includes(e.id)) : [];
 
   const all = trip ? tripExpenses(trip.id, s) : monthExpenses(liveExpenses(s), key);
   const monthTrips = trip ? [] : [...new Set(all.map((e) => e.trip_id).filter(Boolean))].map((id) => tripById(id, s)).filter(Boolean);
@@ -437,18 +440,9 @@ export function History({ nav, arg }) {
   const hasEstimated = all.some((e) => !e.amount_confirmed);
   const budget = Number(s.couple.monthly_budget);
   const monthTotal = monthSpent(key, s);
-  const selecting = picked !== null;
-  const pickedList = selecting ? list.filter((e) => picked.includes(e.id)) : [];
-  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-  const allPicked = selecting && list.length > 0 && list.every((e) => picked.includes(e.id));
-  const takeOut = () => {
-    const ids = pickedList.map((e) => e.id);
-    setPicked(null);
-    moveManyToTrip(ids, null, (n) => `${n} ${n === 1 ? 'expense' : 'expenses'} taken out of ${n === 1 ? 'its pot' : 'their pots'}.`);
-  };
 
   return html`
-    <section class="screen history">
+    <section class=${`screen history ${picked ? 'picking' : ''}`}>
       ${trip ? html`
         <div class="month-nav trip-nav">
           <button class="icon-btn" onClick=${() => nav.go('history')} aria-label="Back to months"><${Icon} name="back"/></button>
@@ -466,13 +460,11 @@ export function History({ nav, arg }) {
           <${Icon} name="search" size=${12}/>
           <input type="search" placeholder="Search" value=${q} onInput=${(e) => setQ(e.target.value)} aria-label="Search expenses" autocomplete="off"/>
         </div>
-        ${all.length > 0 && html`<button class="btn btn-quiet small select-btn-toggle" aria-pressed=${selecting}
-          onClick=${() => setPicked(selecting ? null : [])}>${selecting ? 'Done' : 'Select'}</button>`}
+        <button class="btn btn-secondary small" onClick=${() => setPicked(picked ? null : [])} aria-pressed=${!!picked}>${picked ? 'Cancel' : 'Select'}</button>
       </div>
-      ${selecting && html`<p class="hint select-hint">Tap expenses to pick them, then move them into a pot. <button class="link" onClick=${() => setPicked(allPicked ? [] : list.map((e) => e.id))}>${allPicked ? 'Clear' : 'Pick all shown'}</button></p>`}
       <div class="chip-row scroll" role="group" aria-label="Filter">
         <${Chip} on=${who === 'all' && kind === 'all' && !cat} onClick=${() => { setWho('all'); setKind('all'); setCat(null); }}>All<//>
-        ${monthTrips.map((t) => html`<${Chip} key=${t.id} class="content" onClick=${() => nav.go('history', `trip:${t.id}`)} aria-label=${`Show all of ${t.name}`}><${Icon} name="travel" size=${12}/> ${t.name}<//>`)}
+        ${monthTrips.map((t) => html`<${Chip} key=${t.id} class="content" onClick=${() => nav.go('history', `trip:${t.id}`)} aria-label=${`Show all of the pot ${t.name}`}><${Icon} name="pot" size=${12}/> ${t.name}<//>`)}
         ${cat && html`<${Chip} on=${true} onClick=${() => setCat(null)} aria-label=${`${catLabel(cat)}. Tap to show all categories`}>${catLabel(cat)} <${Icon} name="close" size=${12}/><//>`}
         ${mine && html`<${Chip} on=${who === mine.user_id} onClick=${() => setWho(who === mine.user_id ? 'all' : mine.user_id)}>Paid by me<//>`}
         ${other && html`<${Chip} on=${who === other.user_id} onClick=${() => setWho(who === other.user_id ? 'all' : other.user_id)}>Paid by ${other.display_name}<//>`}
@@ -487,21 +479,22 @@ export function History({ nav, arg }) {
           ${filtered ? 'Clear a filter or try another word.' : 'New expenses show here. Newest first.'}
         <//>` : days.map((d) => html`
         <section key=${d.date} class="day">
-          <h2 class="day-head"><span>${dayLabel(d.date)}</span><span>${tight(fmt(sum(d.items), home))}</span></h2>
-          <div class="rows">${d.items.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${selecting ? toggle : nav.open} showTrip=${!trip}
-            selected=${selecting ? picked.includes(e.id) : null}/>`)}</div>
+          <h2 class="day-head"><span>${dayLabel(d.date)}</span>${picked
+            ? (() => { const all = d.items.every((e) => picked.includes(e.id)); return html`<button class="link day-pick" onClick=${() => pickDay(d.items, all)}>${all ? 'Clear day' : 'Select day'}</button>`; })()
+            : html`<span>${tight(fmt(sum(d.items), home))}</span>`}</h2>
+          <div class="rows">${d.items.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${picked ? togglePick : nav.open} showTrip=${!trip}
+            selected=${picked ? picked.includes(e.id) : undefined}/>`)}</div>
         </section>`)}
-      ${selecting && html`
-        <div class="select-bar" role="region" aria-label="Picked expenses">
-          <b>${pickedList.length} picked</b>
-          <div class="btn-row">
-            ${pickedList.some((e) => e.trip_id) && html`<button class="btn btn-quiet small" onClick=${takeOut}>Take out</button>`}
-            <button class="btn btn-primary small" disabled=${!pickedList.length} onClick=${() => setPotPick(true)}>Move to pot</button>
-          </div>
-        </div>`}
-      ${potPick && html`<${PotPickSheet} ids=${pickedList.map((e) => e.id)} onClose=${() => closeSheet(() => setPotPick(false))} onDone=${() => setPicked(null)}/>`}
       ${editTrip && trip && html`<${TripSheet} trip=${trip} onClose=${() => closeSheet(() => setEditTrip(false))}/>`}
-    </section>`;
+      ${potSheet && html`<${PotPicker} ids=${picked} onClose=${() => closeSheet(() => setPotSheet(false))} onDone=${() => { setPotSheet(false); setPicked(null); }}/>`}
+    </section>
+    <!-- Outside the section: its pop-in animation leaves a transform, which would pin a fixed bar to the section. -->
+    ${picked && html`
+      <div class="pick-bar" role="region" aria-label="Selected expenses">
+        <span>${pickedList.length ? html`<b>${pickedList.length} selected</b> · <b>${tight(fmt(sum(pickedList), home))}</b>` : 'Tap expenses to select them'}</span>
+        <button class="btn btn-primary small" disabled=${!pickedList.length} onClick=${() => setPotSheet(true)}><${Icon} name="pot" size=${12}/> Add to pot</button>
+      </div>`}
+`;
 }
 
 // ================================================================= SETTLE
@@ -669,7 +662,7 @@ export function Settle({ nav, arg }) {
           </div>`}
 
         ${st.fundSpent > 0 && html`<p class="hint">${fmt(st.fundSpent, home)} came from the date fund. Not counted in the budget.</p>`}
-        ${st.tripSpent > 0 && html`<p class="hint">${fmt(st.tripSpent, home)} was spent from pots. It is not in the budget, but you pay each other back for it as usual.</p>`}
+        ${st.tripSpent > 0 && html`<p class="hint">${fmt(st.tripSpent, home)} was in pots. It is not in the budget, but you pay each other back for it as usual.</p>`}
 
         ${state === 'due' && estimates > 0 && html`<p class="notice"><${Icon} name="globe" size=${16}/> ${estimates === 1 ? '1 amount is an estimate.' : `${estimates} amounts are estimates.`} You can fix ${estimates === 1 ? 'it' : 'them'} in the next step.</p>`}
         ${state === 'progress' && estimates > 0 && html`
@@ -1080,8 +1073,8 @@ export function Settings({ nav, arg }) {
         ${trip ? html`
           <div class="setting"><span>${trip.name}<small>${`${tripRange(trip)} · ${tripTotal(trip)}`}</small></span>
             <button class="btn btn-secondary small" onClick=${() => setTripEdit(trip)}>Edit</button></div>
-          <button class="setting action" onClick=${endTrip}><span>End pot<small>New expenses use the monthly budget again</small></span></button>` : html`
-          <button class="setting action" onClick=${() => setTripEdit('new')}><span>Start a pot<small>For a trip or a big plan. It has its own budget, outside the monthly one</small></span></button>`}
+          <button class="setting action" onClick=${endTrip}><span>Close pot<small>New expenses use the monthly budget again</small></span></button>` : null}
+        <button class="setting action" onClick=${() => setTripEdit('new')}><span>Open a pot<small>For a trip or a big plan. It does not use the monthly budget</small></span></button>
         ${pastTrips.map((t) => html`
           <button key=${t.id} class="setting trip-row" onClick=${() => nav.go('history', `trip:${t.id}`)}>
             <span>${t.name}<small>${`${tripRange(t)} · ${tripTotal(t)}`}</small></span><${Icon} name="next" size=${12}/></button>`)}

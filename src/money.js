@@ -16,9 +16,9 @@ const decimalsCache = {};
 // Places by currency: the recap and trip names say the place, not the code.
 export const PLACES = { JPY: 'Japan', KRW: 'Korea', THB: 'Thailand', MYR: 'Malaysia', IDR: 'Indonesia', VND: 'Vietnam', TWD: 'Taiwan', HKD: 'Hong Kong', CNY: 'China', PHP: 'Philippines', AUD: 'Australia', NZD: 'New Zealand', GBP: 'the UK', EUR: 'Europe', USD: 'the US', SGD: 'Singapore', INR: 'India', CHF: 'Switzerland' };
 export const placeFor = (code) => PLACES[code] ?? code;
-/** A friendly default trip name from where the money is spent. */
+/** A friendly default pot name for a trip, from where the money is spent. Empty at home. */
 export function tripNameFor(code, home) {
-  return code && code !== home && PLACES[code] ? `${PLACES[code].replace(/^the /, '')} trip` : 'Our pot';
+  return code && code !== home && PLACES[code] ? `${PLACES[code].replace(/^the /, '')} trip` : '';
 }
 
 export function currencyDecimals(code) {

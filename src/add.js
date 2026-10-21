@@ -7,7 +7,6 @@ import {
   react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow, entryNumber, guessCategory,
   activeTrip, tripById, startTrip, moveToTrip, setPref,
 } from './store.js';
-import { PotChoice } from './trips.js';
 import { convert, cachedRates, loadRates, knownCurrencies } from './fx.js';
 import {
   POPULAR_CURRENCIES, currencyDecimals, currencyName, dayLabel, fmt, symbolFor, todayISO, roundTo, monthKey, monthLabel, tripNameFor,
@@ -115,6 +114,7 @@ export function AddSheet({ editing = null, onClose }) {
   const [currency, setCurrency] = useState(() => editing?.original_currency ?? (trip ? (trip.currency ?? home) : tripCurrency(s, home)));
   // New expenses go into the trip that is on; one tap takes this one out.
   const [tripId, setTripId] = useState(editing ? (editing.trip_id ?? null) : (trip?.id ?? null));
+  const tripChoice = tripById(editing?.trip_id, s) ?? trip;
   const [description, setDescription] = useState(editing?.description ?? '');
   const [category, setCategory] = useState(editing?.category ?? null);
   // The app picks the category from the name until you pick one yourself; your pick always wins.
@@ -191,12 +191,12 @@ export function AddSheet({ editing = null, onClose }) {
     if (c === home) setOverride('');
   };
 
-  // Spending abroad with no trip on: offer to start one, unless this currency was marked "not a trip".
+  // Spending abroad with no pot on: offer a pot for the trip, unless this currency was marked "not a trip".
   const askTrip = !editing && !trip && !tripId && foreign && !(s.prefs.noTripFor ?? []).includes(currency);
   const startHere = () => {
     const { trip: made } = startTrip({ name: tripNameFor(currency, home), currency });
     setTripId(made.id);
-    toast(`${made.name} started. Rename it or add a budget on Home.`);
+    toast(`Pot ${made.name} opened. Rename it or add a budget on Home.`);
   };
 
   const canSave = num > 0;
@@ -273,9 +273,9 @@ export function AddSheet({ editing = null, onClose }) {
             <${Icon} name="travel" size=${18}/>
             <div>
               <b>Travelling?</b>
-              <p>Start a pot for the trip so this does not use your monthly date budget.</p>
+              <p>Open a pot for this trip, so it does not use your monthly date budget.</p>
               <div class="btn-row">
-                <button class="btn btn-secondary small" onClick=${startHere}>Start ${tripNameFor(currency, home)}</button>
+                <button class="btn btn-secondary small" onClick=${startHere}>Open pot: ${tripNameFor(currency, home)}</button>
                 <button class="btn btn-quiet small" onClick=${() => setPref('noTripFor', [...(s.prefs.noTripFor ?? []), currency])}>Not a trip</button>
               </div>
             </div>
@@ -320,7 +320,12 @@ export function AddSheet({ editing = null, onClose }) {
             <p class="hint">Add this when your card shows the real amount. Settle up uses it.</p>
           </div>`}
 
-        <${PotChoice} e=${editing} value=${tripId} onPick=${setTripId}/>
+        ${tripChoice && html`
+          <div class="field-group">
+            <${Chip} on=${tripId === tripChoice.id} onClick=${() => setTripId(tripId === tripChoice.id ? null : tripChoice.id)}
+              aria-label=${`In the pot ${tripChoice.name}`}><${Icon} name="pot" size=${12}/> <span>In ${tripChoice.name}</span><//>
+            ${tripId !== tripChoice.id && html`<p class="hint">Not in the pot: it uses the monthly budget.</p>`}
+          </div>`}
 
         ${(fundBalance > 0 || fromFund) && html`
           <div class="field-group">
@@ -365,6 +370,7 @@ export function DetailSheet({ id, onClose, onEdit }) {
   };
 
   const inTrip = tripById(e.trip_id, s);
+  const onTrip = activeTrip(s);
   const moveTrip = (to) => {
     const from = e.trip_id ?? null;
     moveToTrip(e.id, to);
@@ -395,7 +401,9 @@ export function DetailSheet({ id, onClose, onEdit }) {
           ${dl('Added by', `${memberName(e.added_by, s)}${edited ? ` · ${edited}` : ''}`)}
         </dl>
 
-        <${PotChoice} e=${e} value=${e.trip_id ?? null} onPick=${moveTrip}/>
+        ${(inTrip || onTrip) && html`<p class="trip-move">${inTrip
+          ? html`<button class="link" onClick=${() => moveTrip(null)}>Take out of ${inTrip.name}</button>`
+          : html`<button class="link" onClick=${() => moveTrip(onTrip.id)}>Move into ${onTrip.name}</button>`}</p>`}
 
         <div class="reactions" role="group" aria-label="React">
           ${REACTIONS.map((r) => html`

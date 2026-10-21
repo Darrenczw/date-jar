@@ -135,8 +135,8 @@ export function TextBox({ children, class: cls = '', more = true }) {
 
 // ---------------------------------------------------------------- rows
 
-/** One expense. In Select mode (`selected` is true or false) a tap picks it instead of opening it. */
-export function ExpenseRow({ e, onOpen, home, showTrip = true, selected = null }) {
+/** One expense. With `selected` (true/false) the row is in select mode: a tap ticks it instead of opening it. */
+export function ExpenseRow({ e, onOpen, home, showTrip = true, selected }) {
   const s = getState();
   const foreign = e.original_currency !== home;
   const reactions = Object.values(e.reactions ?? {}).map(reactionKey);
@@ -152,9 +152,9 @@ export function ExpenseRow({ e, onOpen, home, showTrip = true, selected = null }
     `No.${no}`,
   ].filter(Boolean).join(' · ');
   return html`
-    <button class=${`row ${selected ? 'picked' : ''}`} onClick=${() => onOpen(e.id)} aria-pressed=${selected === null ? undefined : selected}>
-      ${selected !== null ? html`<span class=${`row-icon row-check ${selected ? 'on' : ''}`} aria-hidden="true">${selected && html`<${Icon} name="check" size=${20}/>`}</span>`
-        : html`<span class=${`row-icon ${e.from_fund ? 'fund' : `cat-${e.category || 'none'}`}`}><${Icon} name=${e.from_fund ? 'chest' : categoryIcon(e.category)} size=${24}/></span>`}
+    <button class=${`row ${selected ? 'picked' : ''}`} onClick=${() => onOpen(e.id)} aria-pressed=${selected}>
+      ${selected !== undefined && html`<span class=${`row-check ${selected ? 'on' : ''}`} aria-hidden="true">${selected && html`<${Icon} name="check" size=${12}/>`}</span>`}
+      <span class=${`row-icon ${e.from_fund ? 'fund' : `cat-${e.category || 'none'}`}`}><${Icon} name=${e.from_fund ? 'chest' : categoryIcon(e.category)} size=${24}/></span>
       <span class="row-main">
         <span class="row-title"><span class="row-desc">${e.description}</span>${reactions.length > 0 && html`<span class="row-react" aria-label=${`${reactions.length} ${reactions.length === 1 ? "reaction" : "reactions"}`}>${reactions.map((r, i) => html`<${Icon} key=${i} name=${r} size=${12} class=${`react-${r}`}/>`)}</span>`}</span>
         <span class="row-sub"><i class=${`pip ${e.paid_by ? '' : 'pip-joint'}`} style=${e.paid_by ? partyTone(e.paid_by, s).style : ''} aria-hidden="true"></i>${sub}</span>
