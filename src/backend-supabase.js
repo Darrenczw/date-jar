@@ -60,15 +60,16 @@ export const cloud = {
   async fetchAll(userId) {
     const c = await sb();
     const mine = check(await c.from('members').select('couple_id').eq('user_id', userId).maybeSingle());
-    if (!mine) return { couple: null, members: [], expenses: [], settlements: [] };
+    if (!mine) return { couple: null, members: [], expenses: [], settlements: [], trips: [] };
     const id = mine.couple_id;
-    const [couple, members, expenses, settlements] = await Promise.all([
+    const [couple, members, expenses, settlements, trips] = await Promise.all([
       c.from('couples').select('*').eq('id', id).single().then(check),
       c.from('members').select('*').eq('couple_id', id).order('joined_at').then(check),
       c.from('expenses').select('*').eq('couple_id', id).is('deleted_at', null).order('spent_on', { ascending: false }).then(check),
       c.from('settlements').select('*').eq('couple_id', id).then(check),
+      c.from('trips').select('*').eq('couple_id', id).order('started_on').then(check),
     ]);
-    return { couple, members, expenses, settlements };
+    return { couple, members, expenses, settlements, trips };
   },
 
   async createCouple({ displayName, currency, budget }) {
@@ -99,6 +100,8 @@ export const cloud = {
         return check(await c.from('expenses').upsert(op.row));
       case 'settlement':
         return check(await c.from('settlements').upsert(op.row));
+      case 'trip':
+        return check(await c.from('trips').upsert(op.row));
       case 'couple': {
         const { id, ...fields } = op.row;
         return check(await c.from('couples').update(fields).eq('id', id));
@@ -123,6 +126,7 @@ export const cloud = {
         .channel(`couple-${coupleId}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', filter: f }, (p) => onChange('expense', p.new))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'settlements', filter: f }, (p) => onChange('settlement', p.new))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'trips', filter: f }, (p) => onChange('trip', p.new))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'members', filter: f }, () => onChange('members'))
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'couples', filter: `id=eq.${coupleId}` }, (p) => onChange('couple', p.new))
         .subscribe();

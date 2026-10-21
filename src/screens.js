@@ -9,12 +9,14 @@ import {
   CATEGORIES, MODE, createInvite, dateFundBalance, defaultSettleMonth, leaveCouple, liveExpenses, me, memberName,
   monthSpent, partner, reopenMonth, setPref, settleMonth, settlementRow, signOut, toast, updateCouple,
   updateMemberName, useStore, switchDemoUser, flush, friendlyError, onlySamples, changeHomeCurrency, removeSamples,
+  activeTrip, endTrip, tripById, tripExpenses,
 } from './store.js';
 import {
   addMonths, budgetExpenses, currentMonthKey, dayLabel, fmt, monthExpenses, monthKey, monthLabel, pace,
-  roundTo, settlementFor, shortDate, sum, todayISO, currencyDecimals,
+  roundTo, settlementFor, shortDate, sum, todayISO, currencyDecimals, placeFor,
 } from './money.js';
 import { CurrencyPicker } from './add.js';
+import { TripSheet, tripDay, tripRange } from './trips.js';
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -101,6 +103,7 @@ function HowItWorks() {
       <li><span><b>The jar</b> and the Budget bar show what is left this month. The ▼ <i>today</i> mark is where it should be today.</span></li>
       <li><span><b>Settle up</b> at month end: each of you gets paid back from the joint account.</span></li>
       <li><span><b>Money left over</b> goes to the date fund, for a special date.</span></li>
+      <li><span><b>Going away?</b> Start a trip. It has its own jar and does not use the monthly budget.</span></li>
     </ol>
     <p class="hint how-note"><b>Estimate:</b> a foreign amount at today's rate. Add what your card charged to make it exact.</p>`;
 }
@@ -115,10 +118,125 @@ function HowSheet({ onClose }) {
 
 // ================================================================= HOME
 
+/** Offline, syncing or sync trouble: one calm line, with a retry when it helps. */
+function SyncPill({ s }) {
+  const waiting = s.outbox.length;
+  if (s.online && !waiting && !s.syncError) return null;
+  return html`
+    <p class=${`status-pill ${!s.online ? 'offline' : ''}`} role="status">
+      <${Icon} name=${!s.online ? 'offline' : 'sync'} size=${12}/>
+      ${!s.online ? (waiting ? `Offline. ${plural(waiting, 'change', 'changes')} will sync later.` : 'Offline. You can still add expenses.')
+        : waiting && !s.syncError ? `Syncing ${plural(waiting, 'change', 'changes')}…` : 'Could not sync. Your changes are saved on this phone.'}
+      ${s.online && (waiting > 0 || s.syncError) && html`<button class="link" onClick=${flush}>Try again</button>`}
+    </p>`;
+}
+
+/** While a trip is on, Home shows the trip or the month. */
+function ViewSwitch({ trip, view, onView }) {
+  return html`<${Segmented} class="view-switch" label="Show on Home" value=${view} onChange=${onView}
+    options=${[{ value: 'trip', label: trip.name, icon: 'travel' }, { value: 'month', label: monthLabel(currentMonthKey(), { withYear: false }), icon: 'calendar' }]}/>`;
+}
+
+/** Home during a trip: the trip's own jar, who paid on the trip and its expenses. */
+function TripHome({ s, trip, nav, onView }) {
+  const [page, setPage] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const home = s.couple.home_currency;
+  const list = tripExpenses(trip.id, s);
+  const spent = sum(list);
+  const budget = Number(trip.budget) || 0;
+  const day = tripDay(trip);
+  const mine = me(s);
+  const other = partner(s);
+  const status = spent <= 0 ? 'empty' : budget && spent > budget ? 'over' : budget && spent / budget > 0.85 ? 'hot' : 'on-track';
+  const left = budget ? leftFrac(spent, budget) : 1;
+  const leftLabel = budget ? (spent > budget ? `${fmt(spent - budget, home)} over!` : `${fmt(budget - spent, home)} left!`) : `${fmt(spent, home)} spent`;
+  const justSaved = s.justSaved && Date.now() - s.justSaved.at < 4000 ? s.justSaved.at : null;
+  const paidBy = (uid) => sum(list.filter((e) => e.paid_by === uid));
+  const jointTotal = sum(list.filter((e) => !e.paid_by));
+  const recent = list.slice().sort((a, b) => b.spent_on.localeCompare(a.spent_on) || (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 5);
+  const perDay = Math.round(spent / day);
+  const summary = `${trip.name}, day ${day}. ${fmt(spent, home)} spent${budget ? ` of a ${fmt(budget, home)} trip budget` : ''}.`;
+
+  const pages = [
+    { id: 'trip', tone: `st-${status}`,
+      head: status === 'over' ? 'Over the trip budget' : status === 'hot' ? 'Trip budget almost used' : `Day ${day}. Have fun!`,
+      // The amount under the jar is the trip total (no budget) or what is left (budget): say the other number here.
+      big: spent <= 0 ? null : budget ? `${fmt(spent, home)} spent` : `About ${fmt(perDay, home)} a day`,
+      body: spent <= 0 ? 'Add what you spend. It goes in this trip.'
+        : budget ? `About ${fmt(perDay, home)} a day so far.` : `So far, over ${plural(day, 'day', 'days')}. Your monthly date budget is not touched.` },
+    { id: 'note', head: 'Not in the monthly budget', body: 'The trip has its own jar. At month end you still pay each other back as usual.' },
+    { id: 'end', head: 'Back home?', body: 'End the trip. New expenses use the monthly budget again.', action: { label: 'End trip', run: endTrip } },
+  ];
+  const msg = pages[Math.min(page, pages.length - 1)];
+
+  return html`
+    <section class="screen home trip-home">
+      <header class="topbar slim">
+        <h1 class="bar-title">${trip.name} · Day ${day}</h1>
+        <button class="people" onClick=${() => nav.go('settings')} aria-label="You and your partner. Open settings">
+          ${mine && html`<${Avatar} name=${mine.display_name} userId=${mine.user_id} size=${30}/>`}
+          ${other && html`<${Avatar} name=${other.display_name} userId=${other.user_id} size=${30}/>`}
+        </button>
+      </header>
+      <${ViewSwitch} trip=${trip} view="trip" onView=${onView}/>
+      <${SyncPill} s=${s}/>
+
+      <p class="sr-only">${summary}</p>
+      <${Scene}>
+        <${Party} s=${s} mood=${moodFor(status)} leftLabel=${leftLabel} jarProps=${{ left, pace: null, dayLabel: '', dropKey: justSaved, summary }}/>
+      <//>
+
+      <div class="hp-row">
+        ${budget > 0 ? html`
+          <${HPBar} left=${left} budgetLeftLabel=${fmt(Math.max(0, budget - spent), home)}/>
+          <div class="hp-foot"><button class="link what-link" onClick=${() => setEditing(true)}>Edit trip</button>
+            <p class="hp-nums"><b data-over=${spent > budget}>${tight(spent > budget ? fmt(spent - budget, home) : fmt(budget - spent, home))}</b> <span>${spent > budget ? html`over the ${tight(fmt(budget, home))} trip budget` : html`/ ${tight(fmt(budget, home))} left`}</span></p></div>` : html`
+          <div class="hp-foot"><button class="link what-link" onClick=${() => setEditing(true)}>Add a trip budget</button>
+            <p class="hp-nums"><b>${tight(fmt(spent, home))}</b> <span>spent on this trip</span></p></div>`}
+      </div>
+
+      <div class=${`textbox paged ${msg.tone ?? ''}`} aria-live="polite">
+        <p class="tb-head">${msg.head}</p>
+        ${msg.big && html`<p class="tb-big">${tight(msg.big)}</p>`}
+        <p>${msg.body}</p>
+        ${msg.action && html`<button class="tb-action" onClick=${msg.action.run}><i class="cursor" aria-hidden="true"></i>${msg.action.label}</button>`}
+        <button class="tb-next" onClick=${() => setPage((page + 1) % pages.length)} aria-label=${`Next message, ${(page % pages.length) + 1} of ${pages.length}`}>
+          <span>Next</span><span class="tb-count">${(page % pages.length) + 1}/${pages.length}</span><i class="more" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      ${list.length > 0 && html`<h2 class="list-label">Who paid on this trip</h2>
+      <div class="payers" role="list" aria-label="Who paid on this trip">
+        ${[mine, other].filter(Boolean).map((m) => html`
+          <div key=${m.user_id} role="listitem">
+            <${Avatar} name=${m.display_name} userId=${m.user_id} size=${22}/>
+            <span>${m.user_id === mine?.user_id ? 'You' : m.display_name}</span><b>${tight(fmt(paidBy(m.user_id), home))}</b>
+          </div>`)}
+        <div role="listitem">
+          <span class="avatar avatar-joint" style="--size:22px"><${Icon} name="joint" size=${12}/></span>
+          <span>Joint account</span><b>${tight(fmt(jointTotal, home))}</b>
+        </div>
+      </div>`}
+
+      <div class="list-head"><h2 class="list-label">Trip expenses</h2>${recent.length > 0 && html`<button class="link" onClick=${() => nav.go('history', `trip:${trip.id}`)}>See all</button>`}</div>
+      ${recent.length === 0 ? html`
+        <${Empty} icon="travel" title="No trip expenses yet" action=${html`<button class="btn btn-secondary" onClick=${nav.add}><${Icon} name="plus" size=${12}/> Add expense</button>`}>
+          Everything you add now goes in ${trip.name}.
+        <//>` : html`
+        <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open} showTrip=${false}/>`)}</div>`}
+      ${editing && html`<${TripSheet} trip=${trip} onClose=${() => closeSheet(() => setEditing(false))}/>`}
+    </section>`;
+}
+
 export function Home({ nav }) {
   const s = useStore();
   const [page, setPage] = useState(0);
   const [how, setHow] = useState(false);
+  const [view, setView] = useState('trip');
+  const [starting, setStarting] = useState(false);
+  const trip = activeTrip(s);
+  if (trip && view === 'trip') return html`<${TripHome} s=${s} trip=${trip} nav=${nav} onView=${setView}/>`;
   const home = s.couple.home_currency;
   const key = currentMonthKey();
   const budget = Number(s.couple.monthly_budget);
@@ -128,7 +246,7 @@ export function Home({ nav }) {
   const other = partner(s);
   const fund = dateFundBalance(s);
   const monthList = budgetExpenses(liveExpenses(s), key);
-  const recent = monthExpenses(liveExpenses(s), key).sort((a, b) => b.spent_on.localeCompare(a.spent_on) || (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 5);
+  const recent = monthExpenses(liveExpenses(s), key).filter((e) => !e.trip_id).sort((a, b) => b.spent_on.localeCompare(a.spent_on) || (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 5);
 
   const prevKey = addMonths(key, -1);
   const prevHas = monthExpenses(liveExpenses(s), prevKey).length > 0;
@@ -190,13 +308,8 @@ export function Home({ nav }) {
         </button>
       </header>
 
-      ${(!s.online || waiting > 0 || s.syncError) && html`
-        <p class=${`status-pill ${!s.online ? 'offline' : ''}`} role="status">
-          <${Icon} name=${!s.online ? 'offline' : 'sync'} size=${12}/>
-          ${!s.online ? (waiting ? `Offline. ${plural(waiting, 'change', 'changes')} will sync later.` : 'Offline. You can still add expenses.')
-            : waiting && !s.syncError ? `Syncing ${plural(waiting, 'change', 'changes')}…` : 'Could not sync. Your changes are saved on this phone.'}
-          ${s.online && (waiting > 0 || s.syncError) && html`<button class="link" onClick=${flush}>Try again</button>`}
-        </p>`}
+      ${trip && html`<${ViewSwitch} trip=${trip} view="month" onView=${setView}/>`}
+      <${SyncPill} s=${s}/>
 
       <p class="sr-only">${summary}</p>
       <${Scene}>
@@ -245,27 +358,66 @@ export function Home({ nav }) {
         <div class="rows">${recent.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open}/>`)}</div>`}
 
       ${spent > 0 && html`<button class="link recap-link" onClick=${() => nav.recap(key)}>See this month's recap</button>`}
+      ${!trip && html`<button class="link trip-link" onClick=${() => setStarting(true)}><${Icon} name="travel" size=${12}/> Going away? Start a trip</button>`}
       ${how && html`<${HowSheet} onClose=${() => closeSheet(() => setHow(false))}/>`}
+      ${starting && html`<${TripSheet} onClose=${() => closeSheet(() => setStarting(false))}/>`}
     </section>`;
 }
 
 // ================================================================= HISTORY
 
-export function History({ nav }) {
+const catLabel = (id) => CATEGORIES.find((c) => c.id === id)?.label ?? 'Other';
+const catOf = (e) => (e.category && CATEGORIES.some((c) => c.id === e.category) ? e.category : 'other');
+
+/** Spending by category, biggest first. Tap a row to show only that category; tap again to show all. */
+function WhereItWent({ list, home, selected, onPick }) {
+  const [more, setMore] = useState(false);
+  const total = sum(list);
+  const by = {};
+  list.forEach((e) => { by[catOf(e)] = (by[catOf(e)] ?? 0) + (Number(e.home_amount) || 0); });
+  const rows = Object.entries(by).map(([id, amt]) => ({ id, amt: roundTo(amt) })).filter((r) => r.amt > 0).sort((a, b) => b.amt - a.amt);
+  if (total <= 0 || (rows.length < 2 && !selected)) return null;
+  const top = rows[0].amt;
+  const shown = more || rows.length <= 5 ? rows : rows.slice(0, 4).concat(rows.slice(4).filter((r) => r.id === selected));
+  return html`
+    <section class="where" aria-label="Where it went">
+      <h2 class="where-head"><span>Where it went</span><span>${selected ? 'Tap again to show all' : 'Tap to filter'}</span></h2>
+      ${shown.map((r) => html`
+        <button key=${r.id} class=${`where-row ${selected === r.id ? 'on' : ''}`} aria-pressed=${selected === r.id} onClick=${() => onPick(selected === r.id ? null : r.id)}
+          aria-label=${`${catLabel(r.id)}: ${fmt(r.amt, home)}, ${Math.round((r.amt / total) * 100)} percent`}>
+          <span class=${`row-icon cat-${r.id}`} aria-hidden="true"><${Icon} name=${categoryIcon(r.id)} size=${12}/></span>
+          <span class="where-label">${catLabel(r.id)}</span>
+          <span class=${`where-bar cat-${r.id}`} aria-hidden="true"><i style=${`--w:${r.amt / top}`}></i></span>
+          <span class="where-amt"><span>${tight(fmt(r.amt, home))}</span><small>${Math.round((r.amt / total) * 100)}%</small></span>
+        </button>`)}
+      ${rows.length > 5 && html`<button class="link where-more" onClick=${() => setMore(!more)}>${more ? 'Show less' : `Show all ${rows.length}`}</button>`}
+    </section>`;
+}
+
+export function History({ nav, arg }) {
   const s = useStore();
   const home = s.couple.home_currency;
   const [key, setKey] = useState(currentMonthKey());
   const [q, setQ] = useState('');
   const [who, setWho] = useState('all');
   const [kind, setKind] = useState('all');
+  const [cat, setCat] = useState(null);
+  const [editTrip, setEditTrip] = useState(false);
   const mine = me(s);
   const other = partner(s);
+  // #/history/trip:<id> shows one whole trip, across months.
+  const trip = arg?.startsWith('trip:') ? tripById(arg.slice(5), s) : null;
+  useEffect(() => { setQ(''); setWho('all'); setKind('all'); setCat(null); }, [arg]);
 
-  const all = monthExpenses(liveExpenses(s), key);
-  const list = all
+  const all = trip ? tripExpenses(trip.id, s) : monthExpenses(liveExpenses(s), key);
+  const monthTrips = trip ? [] : [...new Set(all.map((e) => e.trip_id).filter(Boolean))].map((id) => tripById(id, s)).filter(Boolean);
+  // Every filter but the category: "Where it went" shows the split of what you are looking at.
+  const base = all
     .filter((e) => !q.trim() || `${e.description} ${e.original_currency}`.toLowerCase().includes(q.trim().toLowerCase()))
     .filter((e) => who === 'all' || (who === 'joint' ? !e.paid_by : e.paid_by === who))
-    .filter((e) => kind === 'all' || (kind === 'foreign' ? e.original_currency !== home : !e.amount_confirmed))
+    .filter((e) => kind === 'all' || (kind === 'foreign' ? e.original_currency !== home : !e.amount_confirmed));
+  const list = base
+    .filter((e) => !cat || catOf(e) === cat)
     .sort((a, b) => b.spent_on.localeCompare(a.spent_on) || (b.created_at || '').localeCompare(a.created_at || ''));
 
   const days = [];
@@ -277,7 +429,7 @@ export function History({ nav }) {
 
   const total = sum(list);
   const settled = settlementRow(key, s);
-  const filtered = who !== 'all' || kind !== 'all' || q.trim();
+  const filtered = who !== 'all' || kind !== 'all' || cat || q.trim();
   const hasForeign = all.some((e) => e.original_currency !== home);
   const hasEstimated = all.some((e) => !e.amount_confirmed);
   const budget = Number(s.couple.monthly_budget);
@@ -285,15 +437,26 @@ export function History({ nav }) {
 
   return html`
     <section class="screen history">
-      <${MonthNav} label=${monthLabel(key)} onPrev=${() => setKey(addMonths(key, -1))} onNext=${() => setKey(addMonths(key, 1))}
+      ${trip ? html`
+        <div class="month-nav trip-nav">
+          <button class="icon-btn" onClick=${() => nav.go('history')} aria-label="Back to months"><${Icon} name="back"/></button>
+          <div class="month-nav-label">
+            ${trip.budget > 0 && html`<${Jar} size="sm" left=${leftFrac(sum(all), Number(trip.budget))} summary=${`${fmt(Math.max(0, trip.budget - sum(all)), home)} left in the trip budget`}/>`}
+            <div><h1>${trip.name}</h1><p>${`${tripRange(trip)} · ${fmt(total, home)} · ${plural(list.length, 'expense', 'expenses')}`}</p></div>
+          </div>
+          <button class="icon-btn" onClick=${() => setEditTrip(true)} aria-label=${`Edit ${trip.name}`}><${Icon} name="edit"/></button>
+        </div>` : html`<${MonthNav} label=${monthLabel(key)} onPrev=${() => { setKey(addMonths(key, -1)); setCat(null); }} onNext=${() => { setKey(addMonths(key, 1)); setCat(null); }}
         canNext=${key < currentMonthKey()} sub=${`${fmt(total, home)} · ${list.length} ${list.length === 1 ? 'expense' : 'expenses'}${settled ? ' · settled' : ''}`}
-        art=${html`<${Jar} size="sm" left=${leftFrac(monthTotal, budget)} summary=${`${fmt(Math.max(0, budget - monthTotal), home)} left in budget`}/>`}/>
+        art=${html`<${Jar} size="sm" left=${leftFrac(monthTotal, budget)} summary=${`${fmt(Math.max(0, budget - monthTotal), home)} left in budget`}/>`}/>`}
+      <${WhereItWent} list=${base} home=${home} selected=${cat} onPick=${setCat}/>
       <div class="search-wrap">
         <${Icon} name="search" size=${12}/>
         <input type="search" placeholder="Search" value=${q} onInput=${(e) => setQ(e.target.value)} aria-label="Search expenses" autocomplete="off"/>
       </div>
       <div class="chip-row scroll" role="group" aria-label="Filter">
-        <${Chip} on=${who === 'all' && kind === 'all'} onClick=${() => { setWho('all'); setKind('all'); }}>All<//>
+        <${Chip} on=${who === 'all' && kind === 'all' && !cat} onClick=${() => { setWho('all'); setKind('all'); setCat(null); }}>All<//>
+        ${monthTrips.map((t) => html`<${Chip} key=${t.id} class="content" onClick=${() => nav.go('history', `trip:${t.id}`)} aria-label=${`Show all of ${t.name}`}><${Icon} name="travel" size=${12}/> ${t.name}<//>`)}
+        ${cat && html`<${Chip} on=${true} onClick=${() => setCat(null)} aria-label=${`${catLabel(cat)}. Tap to show all categories`}>${catLabel(cat)} <${Icon} name="close" size=${12}/><//>`}
         ${mine && html`<${Chip} on=${who === mine.user_id} onClick=${() => setWho(who === mine.user_id ? 'all' : mine.user_id)}>Paid by me<//>`}
         ${other && html`<${Chip} on=${who === other.user_id} onClick=${() => setWho(who === other.user_id ? 'all' : other.user_id)}>Paid by ${other.display_name}<//>`}
         <${Chip} on=${who === 'joint'} onClick=${() => setWho(who === 'joint' ? 'all' : 'joint')}>Joint account<//>
@@ -302,14 +465,15 @@ export function History({ nav }) {
       </div>
 
       ${days.length === 0 ? html`
-        <${Empty} icon=${filtered ? 'search' : 'history'} title=${filtered ? 'No matches' : `No expenses in ${monthLabel(key, { withYear: false })}`}
-          action=${!filtered && key === currentMonthKey() ? html`<button class="btn btn-secondary" onClick=${nav.add}><${Icon} name="plus" size=${18}/> Add expense</button>` : null}>
+        <${Empty} icon=${filtered ? 'search' : 'history'} title=${filtered ? 'No matches' : trip ? `No expenses in ${trip.name}` : `No expenses in ${monthLabel(key, { withYear: false })}`}
+          action=${!filtered && !trip && key === currentMonthKey() ? html`<button class="btn btn-secondary" onClick=${nav.add}><${Icon} name="plus" size=${18}/> Add expense</button>` : null}>
           ${filtered ? 'Clear a filter or try another word.' : 'New expenses show here. Newest first.'}
         <//>` : days.map((d) => html`
         <section key=${d.date} class="day">
           <h2 class="day-head"><span>${dayLabel(d.date)}</span><span>${tight(fmt(sum(d.items), home))}</span></h2>
-          <div class="rows">${d.items.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open}/>`)}</div>
+          <div class="rows">${d.items.map((e) => html`<${ExpenseRow} key=${e.id} e=${e} home=${home} onOpen=${nav.open} showTrip=${!trip}/>`)}</div>
         </section>`)}
+      ${editTrip && trip && html`<${TripSheet} trip=${trip} onClose=${() => closeSheet(() => setEditTrip(false))}/>`}
     </section>`;
 }
 
@@ -478,6 +642,7 @@ export function Settle({ nav, arg }) {
           </div>`}
 
         ${st.fundSpent > 0 && html`<p class="hint">${fmt(st.fundSpent, home)} came from the date fund. Not counted in the budget.</p>`}
+        ${st.tripSpent > 0 && html`<p class="hint">${fmt(st.tripSpent, home)} was spent on trips. It is not in the budget, but you pay each other back for it as usual.</p>`}
 
         ${state === 'due' && estimates > 0 && html`<p class="notice"><${Icon} name="globe" size=${16}/> ${estimates === 1 ? '1 amount is an estimate.' : `${estimates} amounts are estimates.`} You can fix ${estimates === 1 ? 'it' : 'them'} in the next step.</p>`}
         ${state === 'progress' && estimates > 0 && html`
@@ -532,14 +697,11 @@ export function Settle({ nav, arg }) {
 
 // ================================================================= RECAP
 
-// The recap names the place, not the currency code.
-const PLACES = { JPY: 'Japan', KRW: 'Korea', THB: 'Thailand', MYR: 'Malaysia', IDR: 'Indonesia', VND: 'Vietnam', TWD: 'Taiwan', HKD: 'Hong Kong', CNY: 'China', PHP: 'Philippines', AUD: 'Australia', NZD: 'New Zealand', GBP: 'the UK', EUR: 'Europe', USD: 'the US', SGD: 'Singapore', INR: 'India', CHF: 'Switzerland' };
-const placeFor = (code) => PLACES[code] ?? code;
 
 function recapStats(s, key) {
   const home = s.couple.home_currency;
   const list = monthExpenses(liveExpenses(s), key);
-  const budgeted = list.filter((e) => !e.from_fund);
+  const budgeted = list.filter((e) => !e.from_fund && !e.trip_id);
   const total = sum(budgeted);
   const budget = Number(s.couple.monthly_budget);
   const byCat = {};
@@ -726,12 +888,12 @@ const csvCell = (v) => {
   return /[",\n\t]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 };
 
-function buildRows(s, from, to) {
+function buildRows(s, from, to, tripId = null) {
   const home = s.couple.home_currency;
-  const list = liveExpenses(s).filter((e) => e.spent_on >= from && e.spent_on <= to).sort((a, b) => a.spent_on.localeCompare(b.spent_on));
-  const header = ['Date', 'Description', 'Category', 'Paid by', 'Added by', 'Original amount', 'Original currency', 'Exchange rate', `Amount (${home})`, 'Amount confirmed', 'From date fund', 'Month settled'];
+  const list = liveExpenses(s).filter((e) => (tripId ? e.trip_id === tripId : e.spent_on >= from && e.spent_on <= to)).sort((a, b) => a.spent_on.localeCompare(b.spent_on));
+  const header = ['Date', 'Description', 'Category', 'Trip', 'Paid by', 'Added by', 'Original amount', 'Original currency', 'Exchange rate', `Amount (${home})`, 'Amount confirmed', 'From date fund', 'Month settled'];
   const rows = list.map((e) => [
-    e.spent_on, e.description, CATEGORIES.find((c) => c.id === e.category)?.label ?? '',
+    e.spent_on, e.description, CATEGORIES.find((c) => c.id === e.category)?.label ?? '', tripById(e.trip_id, s)?.name ?? '',
     e.paid_by ? memberName(e.paid_by, s, { you: false }) : 'Joint account', memberName(e.added_by, s, { you: false }),
     e.original_amount, e.original_currency, e.original_currency === home ? 1 : Number(Number(e.fx_rate).toPrecision(6)),
     e.home_amount, e.amount_confirmed ? 'Yes' : 'No', e.from_fund ? 'Yes' : 'No', settlementRow(monthKey(e.spent_on), s) ? 'Yes' : 'No',
@@ -745,6 +907,9 @@ function ExportSection() {
   const first = liveExpenses(s).map((e) => e.spent_on).sort()[0] ?? todayISO();
   const [from, setFrom] = useState(`${currentMonthKey()}-01`);
   const [to, setTo] = useState(todayISO());
+  const trips = s.trips.slice().sort((a, b) => b.started_on.localeCompare(a.started_on));
+  const [pickedTrip, setTripId] = useState(null);
+  const tripId = pickedTrip ?? trips[0]?.id ?? null;
 
   const bounds = () => {
     const cur = currentMonthKey();
@@ -753,11 +918,12 @@ function ExportSection() {
     if (range === 'all') return ['0000-01-01', '9999-12-31'];
     return [from, to];
   };
-  const { header, rows } = buildRows(s, ...bounds());
+  const { header, rows } = range === 'trip' ? buildRows(s, null, null, tripId) : buildRows(s, ...bounds());
 
   const exportCsv = async () => {
     const csv = [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\n');
-    const name = `date-jar-${todayISO()}.csv`;
+    const tripName = range === 'trip' ? tripById(tripId, s)?.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : '';
+    const name = `date-jar-${tripName || todayISO()}.csv`;
     const file = new File([csv], name, { type: 'text/csv' });
     if (navigator.canShare?.({ files: [file] })) {
       try { await navigator.share({ files: [file], title: 'Date Jar export' }); return; } catch (err) { if (err?.name === 'AbortError') return; }
@@ -775,13 +941,18 @@ function ExportSection() {
   return html`
     <div class="export">
       <${Segmented} label="Date range" value=${range} onChange=${setRange} class="wrap"
-        options=${[{ value: 'this', label: 'This month' }, { value: 'last', label: 'Last month' }, { value: 'custom', label: 'Custom' }, { value: 'all', label: 'All time' }]}/>
+        options=${[{ value: 'this', label: 'This month' }, { value: 'last', label: 'Last month' }, { value: 'custom', label: 'Custom' }, { value: 'all', label: 'All time' },
+          ...(trips.length ? [{ value: 'trip', label: 'One trip' }] : [])]}/>
+      ${range === 'trip' && html`
+        <div class="chip-row" role="group" aria-label="Trip to export">
+          ${trips.map((t) => html`<${Chip} key=${t.id} class="content" on=${t.id === tripId} onClick=${() => setTripId(t.id)}>${t.name}<//>`)}
+        </div>`}
       ${range === 'custom' && html`
         <div class="date-pair">
           <label>From<input type="date" value=${from} min=${first} onInput=${(e) => e.target.value && setFrom(e.target.value)}/></label>
           <label>To<input type="date" value=${to} onInput=${(e) => e.target.value && setTo(e.target.value)}/></label>
         </div>`}
-      <p class="hint">${rows.length} ${rows.length === 1 ? 'expense' : 'expenses'} in this range.</p>
+      <p class="hint">${rows.length} ${rows.length === 1 ? 'expense' : 'expenses'} in this ${range === 'trip' ? 'trip' : 'range'}.</p>
       <div class="btn-row">
         <button class="btn btn-secondary" disabled=${!rows.length} onClick=${copyTable}><${Icon} name="copy" size=${18}/> Copy for Google Sheets</button>
         <button class="btn btn-secondary" disabled=${!rows.length} onClick=${exportCsv}><${Icon} name="download" size=${18}/> Save as CSV</button>
@@ -823,6 +994,10 @@ export function Settings({ nav, arg }) {
   useEffect(() => setBudget(String(s.couple.monthly_budget)), [s.couple.monthly_budget]);
   const [invite, setInvite] = useState(false);
   const [curPicker, setCurPicker] = useState(false);
+  const [tripEdit, setTripEdit] = useState(null); // 'new' or a trip
+  const trip = activeTrip(s);
+  const pastTrips = s.trips.filter((t) => t.id !== trip?.id).sort((a, b) => b.started_on.localeCompare(a.started_on));
+  const tripTotal = (t) => fmt(sum(tripExpenses(t.id, s)), home);
   // #/settings/character opens your own character straight away (from the welcome message on Home).
   const [dressing, setDressing] = useState(arg === 'character' ? mine : null);
   const locked = !onlySamples(s);
@@ -873,6 +1048,18 @@ export function Settings({ nav, arg }) {
           <span class=${`switch ${s.prefs.categories ? 'on' : ''}`} aria-hidden="true"><i/></span></button>
       </div>
 
+      <h2 class="list-label">Trips</h2>
+      <div class="group">
+        ${trip ? html`
+          <div class="setting"><span>${trip.name}<small>${`${tripRange(trip)} · ${tripTotal(trip)}`}</small></span>
+            <button class="btn btn-secondary small" onClick=${() => setTripEdit(trip)}>Edit</button></div>
+          <button class="setting action" onClick=${endTrip}><span>End trip<small>New expenses use the monthly budget again</small></span></button>` : html`
+          <button class="setting action" onClick=${() => setTripEdit('new')}><span>Start a trip<small>It has its own jar and does not use the monthly budget</small></span></button>`}
+        ${pastTrips.map((t) => html`
+          <button key=${t.id} class="setting trip-row" onClick=${() => nav.go('history', `trip:${t.id}`)}>
+            <span>${t.name}<small>${`${tripRange(t)} · ${tripTotal(t)}`}</small></span><${Icon} name="next" size=${12}/></button>`)}
+      </div>
+
       <h2 class="list-label">Export</h2>
       <div class="group padded"><${ExportSection}/></div>
 
@@ -892,6 +1079,7 @@ export function Settings({ nav, arg }) {
       <p class="about">Date Jar · test version${MODE === 'demo' ? ' · demo mode' : ''}<br/>Exchange rates: open.er-api.com, updated daily.</p>
       ${invite && html`<${InviteSheet} onClose=${() => closeSheet(() => setInvite(false))}/>`}
       ${dressing && html`<${CharacterSheet} member=${dressing} onClose=${() => closeSheet(() => setDressing(null))}/>`}
+      ${tripEdit && html`<${TripSheet} trip=${tripEdit === 'new' ? null : tripEdit} onClose=${() => closeSheet(() => setTripEdit(null))}/>`}
       ${curPicker && html`<${CurrencyPicker} value=${home} home=${home} onPick=${(c) => { changeHomeCurrency(c); setCurPicker(false); }} onClose=${() => closeSheet(() => setCurPicker(false))}/>`}
     </section>`;
 }

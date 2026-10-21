@@ -13,6 +13,14 @@ export const POPULAR_CURRENCIES = [
 ];
 
 const decimalsCache = {};
+// Places by currency: the recap and trip names say the place, not the code.
+export const PLACES = { JPY: 'Japan', KRW: 'Korea', THB: 'Thailand', MYR: 'Malaysia', IDR: 'Indonesia', VND: 'Vietnam', TWD: 'Taiwan', HKD: 'Hong Kong', CNY: 'China', PHP: 'Philippines', AUD: 'Australia', NZD: 'New Zealand', GBP: 'the UK', EUR: 'Europe', USD: 'the US', SGD: 'Singapore', INR: 'India', CHF: 'Switzerland' };
+export const placeFor = (code) => PLACES[code] ?? code;
+/** A friendly default trip name from where the money is spent. */
+export function tripNameFor(code, home) {
+  return code && code !== home && PLACES[code] ? `${PLACES[code].replace(/^the /, '')} trip` : 'Our trip';
+}
+
 export function currencyDecimals(code) {
   if (decimalsCache[code] != null) return decimalsCache[code];
   let d = 2;
@@ -107,9 +115,9 @@ export function shortDate(iso) {
 
 // ---- Budget maths ----
 
-// Expenses that count against the monthly budget (date-fund spends don't).
+// Expenses that count against the monthly budget (date-fund and trip spends don't).
 export function budgetExpenses(expenses, key) {
-  return expenses.filter((e) => !e.deleted_at && monthKey(e.spent_on) === key && !e.from_fund);
+  return expenses.filter((e) => !e.deleted_at && monthKey(e.spent_on) === key && !e.from_fund && !e.trip_id);
 }
 
 export function monthExpenses(expenses, key) {
@@ -160,8 +168,10 @@ export function settlementFor(expenses, members, key) {
     joint,
     jointTotal: sum(joint),
     estimated,
-    budgetSpent: sum(list.filter((e) => !e.from_fund)),
+    budgetSpent: sum(list.filter((e) => !e.from_fund && !e.trip_id)),
     fundSpent: sum(list.filter((e) => e.from_fund)),
+    // Trip spending is paid back like any expense, but is not in the budget or the date fund.
+    tripSpent: sum(list.filter((e) => e.trip_id && !e.from_fund)),
     total: sum(list),
   };
 }

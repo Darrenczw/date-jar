@@ -13,10 +13,70 @@ export const CATEGORIES = [
   { id: 'food', label: 'Food & drinks' },
   { id: 'groceries', label: 'Groceries' },
   { id: 'outings', label: 'Outings' },
+  { id: 'transport', label: 'Transport' },
+  { id: 'shopping', label: 'Shopping' },
+  { id: 'stay', label: 'Stay' },
   { id: 'travel', label: 'Travel' },
   { id: 'home', label: 'Home' },
   { id: 'other', label: 'Other' },
 ];
+
+// Words in an expense name that point to a category. Latin words match whole (a plural "s" is fine);
+// Chinese words match anywhere. When two words start at the same place, the longer one wins ("grab food").
+const CATEGORY_WORDS = {
+  food: ['food', 'meal', 'breakfast', 'brunch', 'lunch', 'dinner', 'supper', 'snack', 'coffee', 'cafe', 'café', 'kopi', 'latte', 'tea', 'milk tea',
+    'bubble tea', 'boba', 'juice', 'drink', 'beer', 'wine', 'cocktail', 'bar', 'pub', 'restaurant', 'bistro', 'hawker', 'kopitiam', 'food court',
+    'dessert', 'cake', 'ice cream', 'gelato', 'bakery', 'bread', 'pastry', 'donut', 'pizza', 'burger', 'sushi', 'ramen', 'udon', 'noodle',
+    'dumpling', 'xiaolongbao', 'dim sum', 'hotpot', 'hot pot', 'haidilao', 'mala', 'bbq', 'barbecue', 'steak', 'chicken rice', 'pho', 'curry',
+    'omakase', 'buffet', 'izakaya', 'starbucks', 'luckin', 'mixue', 'chagee', 'heytea', 'liho', 'mcdonald', 'kfc', 'jollibee', 'toast box',
+    'ya kun', 'din tai fung', 'grab food', 'grabfood', 'foodpanda', 'deliveroo', '咖啡', '奶茶', '火锅', '早餐', '午餐', '晚餐', '饭'],
+  transport: ['transport', 'taxi', 'cab', 'grab', 'gojek', 'tada', 'ryde', 'comfortdelgro', 'didi', 'uber', 'lyft', 'bolt', 'mrt', 'lrt', 'bus',
+    'train', 'metro', 'subway', 'maglev', 'tram', 'ferry', 'high-speed rail', 'hsr', 'shinkansen', 'airport express', 'parking', 'petrol',
+    'fuel', 'toll', 'erp', 'ez-link', 'ezlink', 'car rental', 'bike', 'scooter', 'shuttle', '滴滴', '打车', '地铁', '高铁', '出租', '公交'],
+  stay: ['hotel', 'hostel', 'airbnb', 'inn', 'motel', 'resort', 'ryokan', 'lodge', 'guesthouse', 'homestay', 'accommodation', 'agoda',
+    'booking.com', 'staycation', '酒店', '民宿', '住宿'],
+  shopping: ['shopping', 'shop', 'mall', 'boutique', 'outlet', 'uniqlo', 'zara', 'h&m', 'muji', 'daiso', 'miniso', 'popmart', 'pop mart',
+    'taobao', 'shopee', 'lazada', 'amazon', 'sephora', 'clothes', 'shirt', 'dress', 'shoe', 'sneaker', 'gift', 'present', 'souvenir',
+    'cosmetic', 'makeup', 'skincare', 'perfume', '淘宝', '购物', '商场'],
+  outings: ['movie', 'cinema', 'film', 'gv', 'golden village', 'cathay', 'shaw', 'concert', 'gig', 'show', 'musical', 'theatre', 'theater',
+    'museum', 'gallery', 'exhibition', 'zoo', 'aquarium', 'bird park', 'safari', 'theme park', 'disney', 'disneyland', 'universal', 'uss',
+    'attraction', 'ticket', 'tour', 'karaoke', 'ktv', 'bowling', 'arcade', 'escape room', 'spa', 'massage', 'bouldering', 'teamlab', 'picnic',
+    '电影', '门票'],
+  groceries: ['groceries', 'grocery', 'supermarket', 'ntuc', 'fairprice', 'cold storage', 'sheng siong', 'don don donki', 'donki', 'wet market', '超市'],
+  travel: ['flight', 'airline', 'plane', 'airfare', 'air ticket', 'scoot', 'singapore airlines', 'jetstar', 'airasia', 'cathay pacific', 'visa',
+    'travel insurance', 'luggage', 'trip.com', 'klook', 'ctrip', '机票'],
+  home: ['rent', 'utilities', 'electricity', 'water bill', 'internet', 'wifi', 'phone bill', 'furniture', 'ikea', 'cleaning', 'laundry', 'household', '家具'],
+};
+const CJK = /[　-鿿가-힯]/;
+const escapeRe = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const CATEGORY_MATCHERS = Object.entries(CATEGORY_WORDS).flatMap(([category, words]) => words.map((w) => ({
+  category,
+  len: w.length,
+  find: CJK.test(w)
+    ? (text) => text.indexOf(w)
+    : ((re) => (text) => { const m = re.exec(text); return m ? m.index + m[1].length : -1; })(
+      new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(w)}(?:e?s)?(?=$|[^\\p{L}\\p{N}])`, 'u')),
+})));
+
+/**
+ * The category an expense name points to: what the two of you picked before for the same name,
+ * else the first known word in it. Null when nothing fits. Works offline.
+ */
+export function guessCategory(description, s = state) {
+  const text = description.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!text) return null;
+  const known = new Set(CATEGORIES.map((c) => c.id));
+  const learned = liveExpenses(s)
+    .filter((e) => e.category && known.has(e.category) && e.description.trim().toLowerCase().replace(/\s+/g, ' ') === text)
+    .sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''))[0];
+  if (learned) return learned.category;
+  let best = null;
+  for (const m of CATEGORY_MATCHERS) {
+    const at = m.find(text);
+    if (at >= 0 && (!best || at < best.at || (at === best.at && m.len > best.len))) best = { category: m.category, at, len: m.len };
+  }
+  return best?.category ?? null;
+}
 
 export const REACTIONS = [
   { key: 'heart', label: 'Love it' },
@@ -39,6 +99,7 @@ const empty = {
   members: [],
   expenses: [],
   settlements: [],
+  trips: [],
   outbox: [],
   prefs: { lastCurrency: null, categories: true, installDismissed: false },
   online: typeof navigator === 'undefined' ? true : navigator.onLine,
@@ -55,17 +116,17 @@ function readCache() {
   try {
     const saved = JSON.parse(localStorage.getItem(CACHE_KEY));
     if (!saved || saved.mode !== MODE) return {};
-    const { session, couple, members, expenses, settlements, outbox, prefs } = saved;
-    return { session, couple, members: members ?? [], expenses: expenses ?? [], settlements: settlements ?? [], outbox: outbox ?? [], prefs: { ...empty.prefs, ...prefs } };
+    const { session, couple, members, expenses, settlements, trips, outbox, prefs } = saved;
+    return { session, couple, members: members ?? [], expenses: expenses ?? [], settlements: settlements ?? [], trips: trips ?? [], outbox: outbox ?? [], prefs: { ...empty.prefs, ...prefs } };
   } catch {
     return {};
   }
 }
 
 function persist() {
-  const { session, couple, members, expenses, settlements, outbox, prefs } = state;
+  const { session, couple, members, expenses, settlements, trips, outbox, prefs } = state;
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ mode: MODE, session, couple, members, expenses, settlements, outbox, prefs }));
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ mode: MODE, session, couple, members, expenses, settlements, trips, outbox, prefs }));
   } catch { /* private mode / full: app still works for this session */ }
 }
 
@@ -197,32 +258,43 @@ export function suggestions(s = state, n = 6) {
 // ---------------------------------------------------------------- sync
 
 let unsubscribe = () => {};
-let flushing = false;
+let flushing = null; // the sync in progress, so callers can wait for it
 
-export async function flush() {
-  if (flushing || !state.outbox.length) return;
-  const be = await backend();
-  flushing = true;
-  setState({ syncing: true });
-  try {
-    while (state.outbox.length) {
-      const op = state.outbox[0];
-      try {
-        await be.push(op);
-        setState((s) => ({ outbox: s.outbox.slice(1), syncError: null }));
-      } catch (err) {
-        if (err.status >= 400 && err.status < 500) {
-          // The server refused this change for good; drop it so the queue keeps moving.
-          setState((s) => ({ outbox: s.outbox.slice(1), syncError: err.message }));
-        } else {
-          break; // offline or server hiccup: try again later
+// The database is missing a table or column (an upgrade not run yet): keep the change and retry later.
+const SCHEMA_ERRORS = new Set(['PGRST204', 'PGRST205', '42703', '42P01']);
+
+export function flush() {
+  if (flushing) return flushing;
+  if (!state.outbox.length) return Promise.resolve();
+  flushing = (async () => {
+    const be = await backend();
+    setState({ syncing: true });
+    try {
+      while (state.outbox.length) {
+        const op = state.outbox[0];
+        try {
+          await be.push(op);
+          setState((s) => ({ outbox: s.outbox.slice(1), syncError: null }));
+        } catch (err) {
+          if (err.status >= 400 && err.status < 500 && !SCHEMA_ERRORS.has(err.code)) {
+            // The server refused this change for good; drop it so the queue keeps moving.
+            setState((s) => ({ outbox: s.outbox.slice(1), syncError: err.message }));
+          } else {
+            if (SCHEMA_ERRORS.has(err.code)) setState({ syncError: err.message });
+            break; // offline, server hiccup or upgrade pending: try again later
+          }
         }
       }
+    } finally {
+      setState({ syncing: false });
     }
-  } finally {
-    flushing = false;
-    setState({ syncing: false });
-  }
+  })().finally(() => { flushing = null; });
+  return flushing;
+}
+
+/** Couple fields changed on this phone that the server has not stored yet (e.g. trip mode just turned on). */
+function pendingCouple() {
+  return Object.assign({}, ...state.outbox.filter((op) => op.type === 'couple').map((op) => op.row));
 }
 
 function enqueue(op) {
@@ -244,8 +316,18 @@ function applyRemote(kind, row) {
     });
   } else if (kind === 'settlement' && row?.year_month) {
     setState((s) => ({ settlements: [...s.settlements.filter((r) => r.year_month !== row.year_month), row] }));
+  } else if (kind === 'trip' && row?.id) {
+    if (state.outbox.some((op) => op.type === 'trip' && op.row.id === row.id)) return;
+    setState((s) => {
+      const old = s.trips.find((t) => t.id === row.id);
+      if (old && (old.updated_at || '') > (row.updated_at || '')) return {};
+      return { trips: [...s.trips.filter((t) => t.id !== row.id), row] };
+    });
   } else if (kind === 'couple' && row?.id) {
-    setState({ couple: row });
+    // An echo of an older change must not undo one still waiting to sync.
+    setState({ couple: { ...row, ...pendingCouple() } });
+    // Trip mode started on the other phone before its trip row reached this one.
+    if (row.active_trip_id && !state.trips.some((t) => t.id === row.active_trip_id)) refresh();
   } else if (kind === 'members') {
     refresh();
   }
@@ -261,7 +343,10 @@ export async function refresh() {
     const queued = state.outbox.filter((op) => op.type === 'expense').map((op) => op.row);
     const expenses = [...queued, ...data.expenses.filter((e) => !queued.some((q) => q.id === e.id))];
     const coupleChanged = data.couple?.id !== state.couple?.id;
-    setState({ couple: data.couple, members: data.members, expenses, settlements: data.settlements, syncError: null });
+    const queuedTrips = state.outbox.filter((op) => op.type === 'trip').map((op) => op.row);
+    const trips = [...queuedTrips, ...(data.trips ?? []).filter((t) => !queuedTrips.some((q) => q.id === t.id))];
+    const couple = data.couple && { ...data.couple, ...pendingCouple() };
+    setState({ couple, members: data.members, expenses, settlements: data.settlements, trips, syncError: null });
     if (coupleChanged) watchCouple();
   } catch (err) {
     if (navigator.onLine) setState({ syncError: err.message });
@@ -334,7 +419,7 @@ export async function verifyCode(email, code) {
   // Signing back in as a member of the saved jar keeps unsent changes; anyone else starts clean.
   const same = state.couple && state.members.some((m) => m.user_id === session.userId);
   if (same) setState({ session });
-  else setState({ session, couple: null, members: [], expenses: [], settlements: [], outbox: [] });
+  else setState({ session, couple: null, members: [], expenses: [], settlements: [], trips: [], outbox: [] });
   await refresh();
   if (same) watchCouple();
 }
@@ -354,7 +439,7 @@ export async function createCouple({ myName, partnerName, currency, budget, samp
       { couple_id: 'demo', user_id: 'me', display_name: myName.trim() },
       { couple_id: 'demo', user_id: 'partner', display_name: partnerName.trim() || 'Partner' },
     ];
-    setState({ session, couple, members, expenses: [], settlements: [], prefs: { ...state.prefs, lastCurrency: currency } });
+    setState({ session, couple, members, expenses: [], settlements: [], trips: [], prefs: { ...state.prefs, lastCurrency: currency } });
     loadRates(currency).catch(() => {});
     if (sample) seedSample();
     return;
@@ -386,7 +471,7 @@ export async function leaveCouple() {
   const be = await backend();
   await be.leaveCouple();
   unsubscribe();
-  setState({ couple: null, members: [], expenses: [], settlements: [], outbox: [] });
+  setState({ couple: null, members: [], expenses: [], settlements: [], trips: [], outbox: [] });
 }
 
 export function updateCouple(fields) {
@@ -467,6 +552,7 @@ export function saveExpense(draft) {
     amount_confirmed,
     paid_by: draft.paid_by || null,
     from_fund: !!draft.from_fund,
+    trip_id: draft.trip_id !== undefined ? draft.trip_id : (existing?.trip_id ?? null),
     added_by: existing?.added_by ?? s.session.userId,
     edited_by: existing ? s.session.userId : null,
     reactions: existing?.reactions ?? {},
@@ -550,6 +636,82 @@ export function react(id, key) {
   if (MODE === 'cloud') enqueue({ type: 'expense', row });
 }
 
+// ---------------------------------------------------------------- trips
+// A trip has its own jar and optional budget. Its expenses skip the monthly date budget
+// but are still paid back in the normal month-end settle-up. One trip is on at a time.
+
+export function activeTrip(s = state) {
+  const id = s.couple?.active_trip_id;
+  return (id && s.trips.find((t) => t.id === id && !t.ended_on)) || null;
+}
+
+export function tripById(id, s = state) {
+  return s.trips.find((t) => t.id === id) ?? null;
+}
+
+export function tripExpenses(id, s = state) {
+  return liveExpenses(s).filter((e) => e.trip_id === id);
+}
+
+/** Expenses from `from` onward in this currency that are in no trip yet: they move in when a trip starts. */
+export function earlierTripExpenses(currency, from, s = state) {
+  if (!currency || currency === s.couple?.home_currency) return [];
+  return liveExpenses(s).filter((e) => !e.trip_id && e.original_currency === currency && e.spent_on >= from);
+}
+
+function putTrip(trip) {
+  setState((s) => ({ trips: [...s.trips.filter((t) => t.id !== trip.id), trip] }));
+  if (MODE === 'cloud') enqueue({ type: 'trip', row: trip });
+}
+
+/** Start a trip and switch both phones into trip mode. Returns the trip. */
+export function startTrip({ name, budget = null, currency = null, from = todayISO() }) {
+  const now = new Date().toISOString();
+  const home = state.couple.home_currency;
+  const trip = {
+    id: crypto.randomUUID(),
+    couple_id: state.couple.id,
+    name: name.trim() || 'Our trip',
+    budget: Number(budget) > 0 ? roundTo(Number(budget)) : null,
+    currency: currency && currency !== home ? currency : null,
+    started_on: from,
+    ended_on: null,
+    created_at: now,
+    updated_at: now,
+  };
+  const earlier = earlierTripExpenses(trip.currency, from);
+  putTrip(trip);
+  updateCouple({ active_trip_id: trip.id });
+  earlier.forEach((e) => moveToTrip(e.id, trip.id));
+  return { trip, moved: earlier.length };
+}
+
+export function updateTrip(id, fields) {
+  const old = tripById(id);
+  if (!old) return;
+  putTrip({ ...old, ...fields, updated_at: new Date().toISOString() });
+}
+
+/** End the trip that is on. Its expenses stay in it; new ones go to the monthly budget again. */
+export function endTrip() {
+  const trip = activeTrip();
+  if (!trip) return;
+  updateTrip(trip.id, { ended_on: todayISO() });
+  updateCouple({ active_trip_id: null });
+  toast(`${trip.name} ended. New expenses use the monthly budget.`, {
+    undo: () => { updateTrip(trip.id, { ended_on: null }); updateCouple({ active_trip_id: trip.id }); },
+  });
+}
+
+/** Put an expense in a trip, or take it out (tripId null). A settled month keeps what was paid back. */
+export function moveToTrip(id, tripId) {
+  const existing = state.expenses.find((e) => e.id === id);
+  if (!existing || (existing.trip_id ?? null) === tripId) return;
+  const row = { ...existing, trip_id: tripId, updated_at: new Date().toISOString(), edited_by: state.session.userId };
+  setState((s) => ({ expenses: s.expenses.map((e) => (e.id === id ? row : e)) }));
+  if (MODE === 'cloud') enqueue({ type: 'expense', row });
+}
+
 // ---------------------------------------------------------------- settle up
 
 export function settleMonth(key) {
@@ -568,6 +730,7 @@ export function settleMonth(key) {
       spent: st.budgetSpent,
       byMember: st.byMember.map((b) => ({ user_id: b.member.user_id, name: b.member.display_name, amount: b.amount })),
       joint: st.jointTotal,
+      trips: st.tripSpent,
     },
   };
   setState((x) => ({ settlements: [...x.settlements.filter((r) => r.year_month !== key), row] }));

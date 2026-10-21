@@ -4,11 +4,12 @@ import { Icon } from './icons.js';
 import { Chip, DiscardBar, Segmented, Sheet, SheetHeader, closeSheet, partyTone, tight } from './components.js';
 import {
   CATEGORIES, REACTIONS, reactionKey, dateFundBalance, deleteExpense, memberName, me, partner,
-  react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow, entryNumber,
+  react, saveExpense, suggestions, undoAdd, toast, useStore, getState, settlementRow, entryNumber, guessCategory,
+  activeTrip, tripById, startTrip, moveToTrip, setPref,
 } from './store.js';
 import { convert, cachedRates, loadRates, knownCurrencies } from './fx.js';
 import {
-  POPULAR_CURRENCIES, currencyDecimals, currencyName, dayLabel, fmt, symbolFor, todayISO, roundTo, monthKey, monthLabel,
+  POPULAR_CURRENCIES, currencyDecimals, currencyName, dayLabel, fmt, symbolFor, todayISO, roundTo, monthKey, monthLabel, tripNameFor,
 } from './money.js';
 
 // ---------------------------------------------------------------- helpers
@@ -109,9 +110,17 @@ export function AddSheet({ editing = null, onClose }) {
   const fundBalance = dateFundBalance(s);
 
   const [amount, setAmount] = useState(editing ? String(editing.original_amount) : '');
-  const [currency, setCurrency] = useState(() => editing?.original_currency ?? tripCurrency(s, home));
+  const trip = activeTrip(s);
+  const [currency, setCurrency] = useState(() => editing?.original_currency ?? (trip ? (trip.currency ?? home) : tripCurrency(s, home)));
+  // New expenses go into the trip that is on; one tap takes this one out.
+  const [tripId, setTripId] = useState(editing ? (editing.trip_id ?? null) : (trip?.id ?? null));
+  const tripChoice = tripById(editing?.trip_id, s) ?? trip;
   const [description, setDescription] = useState(editing?.description ?? '');
   const [category, setCategory] = useState(editing?.category ?? null);
+  // The app picks the category from the name until you pick one yourself; your pick always wins.
+  const [catAuto, setCatAuto] = useState(false);
+  const catManual = useRef(!!editing?.category);
+  const catRow = useRef(null);
   const [date, setDate] = useState(editing?.spent_on ?? todayISO());
   const [paidBy, setPaidBy] = useState(editing ? (editing.paid_by ?? 'joint') : s.session.userId);
   const [fromFund, setFromFund] = useState(!!editing?.from_fund);
@@ -132,6 +141,27 @@ export function AddSheet({ editing = null, onClose }) {
   const sheetsSettled = settlementRow(monthKey(date));
 
   const chips = useMemo(() => suggestions(s, 6), []);
+
+  const autoCategory = (text, hint = null) => {
+    if (!s.prefs.categories || catManual.current) return;
+    const guess = hint ?? guessCategory(text);
+    if (guess) { setCategory(guess); setCatAuto(true); }
+    else { setCategory((cur) => (catAuto ? null : cur)); setCatAuto(false); }
+  };
+  const pickCategory = (id) => {
+    catManual.current = true;
+    setCatAuto(false);
+    setCategory(category === id ? null : id);
+  };
+  // Keep the picked category chip in view: the row scrolls sideways.
+  useEffect(() => {
+    const row = catRow.current;
+    const chip = row?.querySelector('.chip.on');
+    if (!chip) return;
+    const r = row.getBoundingClientRect();
+    const c = chip.getBoundingClientRect();
+    if (c.left < r.left || c.right > r.right) row.scrollBy({ left: c.left - r.left - 16, behavior: 'smooth' });
+  }, [category]);
 
   const onKey = (k) => setAmount((cur) => pressKey(cur, k, decimals));
   // A hardware keyboard types into the pad too (unless a text field has focus).
@@ -161,11 +191,20 @@ export function AddSheet({ editing = null, onClose }) {
     if (c === home) setOverride('');
   };
 
+  // Spending abroad with no trip on: offer to start one, unless this currency was marked "not a trip".
+  const askTrip = !editing && !trip && !tripId && foreign && !(s.prefs.noTripFor ?? []).includes(currency);
+  const startHere = () => {
+    const { trip: made } = startTrip({ name: tripNameFor(currency, home), currency });
+    setTripId(made.id);
+    toast(`${made.name} started. Rename it or add a budget on Home.`);
+  };
+
   const canSave = num > 0;
   // Unsaved work: a typed amount or words on a new expense, or any change while editing.
   const dirty = editing
     ? amount !== String(editing.original_amount) || description !== (editing.description ?? '') || currency !== editing.original_currency
       || date !== editing.spent_on || category !== (editing.category ?? null) || paidBy !== (editing.paid_by ?? 'joint')
+      || tripId !== (editing.trip_id ?? null)
     : amount !== '' || description.trim() !== '';
   const requestClose = () => (dirty ? setAsking(true) : onClose());
   saveRef.current = () => canSave && save();
@@ -183,6 +222,7 @@ export function AddSheet({ editing = null, onClose }) {
       paid_by: paidBy === 'joint' ? null : paidBy,
       home_override: foreign && override !== '' && Number(override) > 0 ? Number(override) : null,
       from_fund: fromFund,
+      trip_id: tripId,
     });
     onClose();
     if (editing) {
@@ -228,25 +268,37 @@ export function AddSheet({ editing = null, onClose }) {
               : html`Converted to ${home} at today's rate${rates?.asOf ? '' : ''}.`}
           </p>`}
         ${!foreign && html`<p class="conv"> </p>`}
+        ${askTrip && html`
+          <div class="notice warn trip-ask">
+            <${Icon} name="travel" size=${18}/>
+            <div>
+              <b>Travelling?</b>
+              <p>Start a trip so this does not use your monthly date budget.</p>
+              <div class="btn-row">
+                <button class="btn btn-secondary small" onClick=${startHere}>Start ${tripNameFor(currency, home)}</button>
+                <button class="btn btn-quiet small" onClick=${() => setPref('noTripFor', [...(s.prefs.noTripFor ?? []), currency])}>Not a trip</button>
+              </div>
+            </div>
+          </div>`}
 
         <div class="field-group">
           <div class="desc-wrap">
             <input ref=${descRef} class="desc" type="text" value=${description} placeholder="What was it? (optional)" maxlength="120"
-              onInput=${(e) => setDescription(e.target.value)} onFocus=${() => setTyping(true)} onBlur=${() => setTyping(false)}
+              onInput=${(e) => { setDescription(e.target.value); autoCategory(e.target.value); }} onFocus=${() => setTyping(true)} onBlur=${() => setTyping(false)}
               autocomplete="off" autocapitalize="sentences" enterkeyhint="done" aria-label="Description"/>
           </div>
           <div class="chip-row scroll" role="group" aria-label="Quick descriptions">
             ${chips.map((c) => html`
               <${Chip} key=${c.description} class="content" on=${description.trim().toLowerCase() === c.description.toLowerCase()}
-                onClick=${() => { setDescription(c.description); if (c.category) setCategory(c.category); }}>${c.description}<//>`)}
+                onClick=${() => { setDescription(c.description); autoCategory(c.description, c.category); }}>${c.description}<//>`)}
           </div>
         </div>
 
         ${s.prefs.categories && html`
           <div class="field-group">
-            <span class="field-label">Category</span>
-            <div class="chip-row scroll" role="group" aria-label="Category">
-              ${CATEGORIES.map((c) => html`<${Chip} key=${c.id} class="content" on=${category === c.id} onClick=${() => setCategory(category === c.id ? null : c.id)}>${c.label}<//>`)}
+            <span class="field-label">Category${catAuto && category && html` <small class="auto-note">· picked for you</small>`}</span>
+            <div class="chip-row scroll" role="group" aria-label="Category" ref=${catRow}>
+              ${CATEGORIES.map((c) => html`<${Chip} key=${c.id} class="content" on=${category === c.id} onClick=${() => pickCategory(c.id)}>${c.label}<//>`)}
             </div>
           </div>`}
 
@@ -266,6 +318,13 @@ export function AddSheet({ editing = null, onClose }) {
                 onFocus=${() => setTyping(true)} onBlur=${() => setTyping(false)}/>
             </div>
             <p class="hint">Add this when your card shows the real amount. Settle up uses it.</p>
+          </div>`}
+
+        ${tripChoice && html`
+          <div class="field-group">
+            <${Chip} on=${tripId === tripChoice.id} onClick=${() => setTripId(tripId === tripChoice.id ? null : tripChoice.id)}
+              aria-label=${`Part of ${tripChoice.name}`}><${Icon} name="travel" size=${12}/> <span>In ${tripChoice.name}</span><//>
+            ${tripId !== tripChoice.id && html`<p class="hint">Not in the trip: it uses the monthly budget.</p>`}
           </div>`}
 
         ${(fundBalance > 0 || fromFund) && html`
@@ -310,6 +369,13 @@ export function DetailSheet({ id, onClose, onEdit }) {
     deleteExpense(e.id);
   };
 
+  const inTrip = tripById(e.trip_id, s);
+  const onTrip = activeTrip(s);
+  const moveTrip = (to) => {
+    const from = e.trip_id ?? null;
+    moveToTrip(e.id, to);
+    toast(to ? `Moved into ${tripById(to, s)?.name}` : `Taken out of ${inTrip?.name ?? 'the trip'}`, { undo: () => moveToTrip(e.id, from) });
+  };
   const edited = e.edited_by ? `Edited by ${memberName(e.edited_by, s)}` : null;
   const dl = (label, value) => html`<div class="kv"><dt>${label}</dt><dd>${value}</dd></div>`;
 
@@ -331,8 +397,13 @@ export function DetailSheet({ id, onClose, onEdit }) {
           ${dl('Date', dayLabel(e.spent_on))}
           ${e.category && dl('Category', CATEGORIES.find((c) => c.id === e.category)?.label ?? e.category)}
           ${e.from_fund && dl('From', 'Date fund (not budget)')}
+          ${inTrip && dl('Trip', `${inTrip.name} (not budget)`)}
           ${dl('Added by', `${memberName(e.added_by, s)}${edited ? ` · ${edited}` : ''}`)}
         </dl>
+
+        ${(inTrip || onTrip) && html`<p class="trip-move">${inTrip
+          ? html`<button class="link" onClick=${() => moveTrip(null)}>Take out of ${inTrip.name}</button>`
+          : html`<button class="link" onClick=${() => moveTrip(onTrip.id)}>Move into ${onTrip.name}</button>`}</p>`}
 
         <div class="reactions" role="group" aria-label="React">
           ${REACTIONS.map((r) => html`

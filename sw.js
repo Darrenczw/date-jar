@@ -1,12 +1,12 @@
 // Offline shell: app files are cached on first load and refreshed in the background.
 // Bump VERSION whenever you publish a new build so phones pick it up.
-const VERSION = 'v14';
+const VERSION = 'v15';
 const CACHE = `date-jar-${VERSION}`;
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon.svg',
   'vendor/preact-htm.js', 'src/app.js', 'src/ui.js', 'src/icons.js', 'src/components.js', 'src/add.js',
   'src/screens.js', 'src/sprites.js', 'src/pixels.js', 'src/avatar.js', 'src/character.js', 'fonts/pixelify-sans-latin.woff2', 'fonts/dotgothic16-latin.woff2', 'src/onboarding.js', 'src/store.js', 'src/money.js', 'src/fx.js', 'src/config.js',
-  'src/backend-supabase.js', 'vendor/supabase.js',
+  'src/backend-supabase.js', 'vendor/supabase.js', 'src/trips.js',
 ];
 
 // GitHub Pages lets browsers keep files for 10 minutes. Skip that copy, or a new

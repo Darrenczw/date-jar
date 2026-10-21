@@ -135,7 +135,7 @@ export function TextBox({ children, class: cls = '', more = true }) {
 
 // ---------------------------------------------------------------- rows
 
-export function ExpenseRow({ e, onOpen, home }) {
+export function ExpenseRow({ e, onOpen, home, showTrip = true }) {
   const s = getState();
   const foreign = e.original_currency !== home;
   const reactions = Object.values(e.reactions ?? {}).map(reactionKey);
@@ -161,6 +161,7 @@ export function ExpenseRow({ e, onOpen, home }) {
         ${e.home_amount || !foreign ? html`<span>${tight(fmt(e.home_amount, home))}</span>` : html`<span class="pending">no rate yet</span>`}
         ${e.from_fund && html`<span class="row-fund">date fund</span>`}
         ${estimate && html`<span class="row-tag row-est">estimate</span>`}
+        ${showTrip && e.trip_id && html`<span class="row-tag">trip</span>`}
         ${e.sample && html`<span class="row-tag">sample</span>`}
       </span>
     </button>`;
