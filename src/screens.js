@@ -4,6 +4,7 @@ import { Icon, categoryIcon } from './icons.js';
 import { Avatar, Chip, Empty, ExpenseRow, Jar, MonthNav, Segmented, Sheet, SheetHeader, TextBox, avatarFor, closeSheet, partyTone, tight } from './components.js';
 import { HPBar, Scene, Sprite, moodFor } from './sprites.js';
 import { CharacterSheet } from './character.js';
+import { classFor, moneyStyle, typeCheck, typeTag, variant } from './mbti.js';
 import { CharArt } from './avatar.js';
 import {
   CATEGORIES, MODE, createInvite, dateFundBalance, defaultSettleMonth, leaveCouple, liveExpenses, me, memberName,
@@ -82,7 +83,7 @@ function Party({ s, mood, jarProps, leftLabel }) {
   const tapChar = (m) => react(m.user_id, pick(LINES[mood] ?? LINES.idle, talk.text), talk.key % 3 === 2 ? 'spin' : 'jump');
   const char = (m, delay) => html`
     <button class="tap-char" onClick=${() => tapChar(m)} aria-label=${m.user_id === mine?.user_id ? 'Talk to your character' : `Talk to ${m.display_name}`}>
-      <${Sprite} avatar=${avatarFor(m.user_id, s)} mood=${mood} name=${m.display_name} delay=${delay}
+      <${Sprite} avatar=${avatarFor(m.user_id, s)} mood=${mood} name=${m.display_name} tag=${typeTag(avatarFor(m.user_id, s))} delay=${delay}
         say=${talk.who === m.user_id ? talk.text : ''} action=${talk.who === m.user_id ? talk.action : ''} actionKey=${talk.key}/>
     </button>`;
   return html`
@@ -820,6 +821,22 @@ export function Recap({ month, onClose }) {
     hearts: Math.min(r.days, 31), body: `${r.list.length} ${r.list.length === 1 ? 'expense' : 'expenses'} in ${label}.` });
   if (r.foreign.length) cards.push({ kind: 'travel', tone: 'sky', title: 'Travel', big: r.foreign.map(placeFor).join(' · '),
     body: `We spent in ${r.foreign.length} other ${r.foreign.length === 1 ? 'currency' : 'currencies'}. Nice trip!` });
+  // R9: money styles, from what each of you paid this month.
+  const styleOf = (m) => m && { m, look: avatarFor(m.user_id, s), style: moneyStyle(s, m.user_id, month) };
+  const styles = [styleOf(mine), styleOf(other)].filter((x) => x?.style);
+  if (styles.length && variant() === 'A') {
+    cards.push({ kind: 'styles', tone: 'cream', title: 'Your money styles', styles, body: 'From what each of you paid for dates this month.' });
+  }
+  if (variant() === 'B') {
+    styles.forEach(({ m, look, style }) => {
+      const type = look.mbti;
+      const check = typeCheck(type, style);
+      const you = m.user_id === mine?.user_id;
+      cards.push({ kind: 'typecheck', tone: you ? 'sky' : 'tomato', title: `${you ? 'You' : m.display_name}${type ? ` · ${classFor(type)}` : ''}`,
+        big: check ? check.verdict : style.jp.label, style, type, m, look,
+        body: type ? `${type}s ${type.includes('J') ? 'like a plan' : 'go with the flow'}. ${you ? 'You' : m.display_name} paid ${style.share}% of date spending.` : `${you ? 'You' : m.display_name} paid ${style.share}% of date spending. Add a type to see if it fits.` });
+    });
+  }
   cards.push({ kind: 'chest', tone: 'sun', title: 'Date fund', value: r.fundBalance + (r.settled ? 0 : r.fund), format: money,
     body: r.settled ? `${fmt(r.fund, r.home)} added from ${label}. Enjoy a treat!` : `${fmt(r.fund, r.home)} is added when you settle ${label}.` });
 
@@ -872,6 +889,14 @@ export function Recap({ month, onClose }) {
       case 'travel': return html`<div class="recap-art fly" aria-hidden="true"><span class="art-plane"><${Icon} name="travel" size=${36}/></span></div>`;
       case 'chest': return html`<div class="recap-art chest-art" aria-hidden="true">${active && html`<${CoinRain}/>`}<span class="fund-icon big chest-bounce"><${Icon} name="chest" size=${36}/></span></div>`;
       case 'stamp': return html`<div class="recap-art pop" aria-hidden="true"><span class="art-tile"><${Icon} name="heart" size=${36}/></span></div>`;
+      case 'styles': return html`
+        <div class="recap-scene" aria-hidden="true"><${Scene} compact><div class="party-stage">
+          ${c.styles.map((x, k) => html`<${Sprite} key=${k} avatar=${x.look} mood="happy" delay=${k * 200} name=${x.m.user_id === mine?.user_id ? 'You' : x.m.display_name} tag=${typeTag(x.look)}/>`)}
+        </div><//></div>`;
+      case 'typecheck': return html`
+        <div class="recap-scene" aria-hidden="true"><${Scene} compact><div class="party-stage">
+          <${Sprite} avatar=${c.look} mood="happy" action=${active ? 'cheer' : ''} actionKey=${active ? 1 : 0} name=${c.type ?? '?'}/>
+        </div><//></div>`;
       default: return null;
     }
   };
@@ -891,9 +916,16 @@ export function Recap({ month, onClose }) {
               ${art(c, n === i)}
               <div class="recap-panel">
                 <h2>${c.title}</h2>
-                <p class=${`recap-big ${c.kind === 'stamp' ? 'stamp content' : ''} ${String(c.big ?? '').length > 14 ? 'long' : ''}`}>${c.value != null ? html`<${CountUp} value=${c.value} format=${c.format} active=${n === i}/>` : tight(c.big)}</p>
+                ${c.kind !== 'styles' && html`<p class=${`recap-big ${c.kind === 'stamp' || c.kind === 'typecheck' ? 'stamp content' : ''} ${String(c.big ?? '').length > 14 ? 'long' : ''}`}>${c.value != null ? html`<${CountUp} value=${c.value} format=${c.format} active=${n === i}/>` : tight(c.big)}</p>`}
                 ${c.kind === 'day' && html`<p class="recap-sub">${c.big}</p>`}
                 ${c.kind === 'category' && html`<div class="recap-meter" aria-hidden="true"><i style=${`--pct:${c.pct / 100}`}></i></div>`}
+                ${c.kind === 'styles' && html`<div class="style-cols">${c.styles.map((x) => html`
+                  <div key=${x.m.user_id} class="style-col">
+                    <b>${x.m.user_id === mine?.user_id ? 'You' : x.m.display_name}${x.look.mbti ? html` <span class="type-pill">${x.look.mbti}</span>` : ''}</b>
+                    ${[x.style.jp, x.style.sn].map((t) => html`<p key=${t.letter} class="style-trait"><span class=${`trait-letter ${x.look.mbti?.includes(t.letter) ? 'hit' : ''}`}>${t.letter}</span><span><b>${t.label}</b><small>${t.line}</small></span></p>`)}
+                    <small class="style-share">Paid ${x.style.share}% of dates</small>
+                  </div>`)}</div>`}
+                ${c.kind === 'typecheck' && html`<div class="style-col single">${[c.style.jp, c.style.sn].map((t) => html`<p key=${t.letter} class="style-trait"><span class=${`trait-letter ${c.type?.includes(t.letter) ? 'hit' : ''}`}>${t.letter}</span><span><b>${t.label}</b><small>${t.line}</small></span></p>`)}</div>`}
                 ${c.kind === 'hearts' && html`<div class="heart-row" aria-hidden="true">${Array.from({ length: c.hearts }, (_, h) => html`<span key=${h} style=${`--i:${h}`}><${Icon} name="heart" size=${12}/></span>`)}</div>`}
                 <p class="recap-body">${c.body}</p>
               </div>
@@ -1058,7 +1090,7 @@ export function Settings({ nav, arg }) {
           return html`
             <div key=${m.user_id} class="setting char-row">
               <span class="char-mini" aria-hidden="true"><${CharArt} avatar=${avatarFor(m.user_id, s)} crop="head"/></span>
-              <span>${m.user_id === mine?.user_id ? 'You' : m.display_name}<small>${editable ? 'Hair, face, clothes, hats' : 'They can change their own look'}</small></span>
+              <span>${m.user_id === mine?.user_id ? 'You' : m.display_name}<small>${avatarFor(m.user_id, s)?.mbti ? `${avatarFor(m.user_id, s).mbti} · ${classFor(avatarFor(m.user_id, s).mbti)}` : (editable ? 'Hair, face, clothes, type' : 'They can change their own look')}</small></span>
               ${editable && html`<button class="btn btn-secondary small" onClick=${() => setDressing(m)}>Change</button>`}
             </div>`;
         })}

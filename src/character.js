@@ -4,12 +4,14 @@ import { DiscardBar, Segmented, Sheet, SheetHeader, avatarFor, radioKeys, radioT
 import { AVATAR_OPTIONS, COLOURED_HATS, CharArt, normalizeAvatar, randomAvatar } from './avatar.js';
 import { Scene, Sprite } from './sprites.js';
 import { toast, updateMemberAvatar, useStore } from './store.js';
+import { TYPE_GROUPS, classFor, variant } from './mbti.js';
 
 const TABS = [
   { value: 'hair', label: 'Hair' },
   { value: 'face', label: 'Face' },
   { value: 'clothes', label: 'Clothes' },
   { value: 'extras', label: 'Extras' },
+  { value: 'type', label: 'Type' },
 ];
 
 // What each tab shows: [look key, label, kind]. "tiles" show a small picture; "colours" show swatches.
@@ -39,7 +41,7 @@ export function CharacterSheet({ member, onClose }) {
   const [bounce, setBounce] = useState(0);
   const you = member.user_id === s.session.userId;
   const set = (key, value) => { setLook((a) => ({ ...a, [key]: value })); setBounce((n) => n + 1); };
-  const surprise = () => { setLook(randomAvatar()); setBounce((n) => n + 1); };
+  const surprise = () => { setLook((a) => ({ ...randomAvatar(), mbti: a.mbti })); setBounce((n) => n + 1); };
   const save = () => {
     updateMemberAvatar(member.user_id, look);
     onClose();
@@ -69,7 +71,23 @@ export function CharacterSheet({ member, onClose }) {
       </div>
     </div>`;
 
-  const sections = SECTIONS[tab].filter(([key]) => key !== 'hatColor' || COLOURED_HATS.has(look.hat));
+  // Your personality type: shows on your character and in the month recap. Optional.
+  const typePicker = () => html`
+    <div class="field-group">
+      <p class="hint">Your personality type, if you know it. It shows ${variant() === 'B' ? 'as your class' : 'under your name'} and the month recap checks it against how you spend.</p>
+      ${TYPE_GROUPS.map((g) => html`
+        <div key=${g.label} class="type-group">
+          <span class="field-label">${g.label}</span>
+          <div class="type-tiles" role="radiogroup" aria-label=${g.label} onKeyDown=${radioKeys}>
+            ${g.types.map(([code, cls]) => html`
+              <button key=${code} type="button" role="radio" aria-checked=${look.mbti === code} tabIndex=${radioTab(look.mbti === code)}
+                class=${`type-tile ${look.mbti === code ? 'on' : ''}`} onClick=${() => set('mbti', look.mbti === code ? null : code)}>
+                <b>${code}</b><small>${cls}</small></button>`)}
+          </div>
+        </div>`)}
+      <p class="hint">Not sure? Leave it empty, or take a free 16-type test online. Tap your type again to clear it.</p>
+    </div>`;
+  const sections = tab === 'type' ? [] : SECTIONS[tab].filter(([key]) => key !== 'hatColor' || COLOURED_HATS.has(look.hat));
   return html`
     <${Sheet} title=${`Change ${you ? 'your character' : member.display_name}`} onClose=${requestClose} dirty=${dirty} tall>
       <${SheetHeader} title=${you ? 'Your character' : member.display_name} onClose=${requestClose}
@@ -78,10 +96,11 @@ export function CharacterSheet({ member, onClose }) {
       <div class="sheet-scroll char-scroll">
         <div class="char-top">
           <div class="char-stage"><${Scene} compact>
-            <div class="party-stage"><${Sprite} avatar=${look} name=${member.display_name} size=${108} action=${bounce ? 'jump' : ''} actionKey=${bounce}/></div>
+            <div class="party-stage"><${Sprite} avatar=${look} name=${member.display_name} tag=${look.mbti ? (variant() === 'B' ? classFor(look.mbti) : look.mbti) : null} size=${108} action=${bounce ? 'jump' : ''} actionKey=${bounce}/></div>
           <//></div>
           <${Segmented} options=${TABS} value=${tab} onChange=${setTab} label="Part to change"/>
         </div>
+        ${tab === 'type' && typePicker()}
         ${sections.map(([key, label, kind]) => (kind === 'colours' ? swatches(key, label) : tiles(key, label, kind)))}
       </div>
       <div class="add-foot"><button class="btn btn-primary btn-block" disabled=${!dirty} onClick=${save}>${dirty ? 'Save' : 'No changes yet'}</button></div>

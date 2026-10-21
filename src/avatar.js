@@ -275,7 +275,7 @@ const MOOD_ICON = { happy: 'heart', alert: 'alert', sweat: 'drop', idle: null };
  * `say` shows a speech bubble; `action` plays a one-off move (jump|spin|cheer).
  * `size` is the width in px; keep it a multiple of 18 so each pixel stays whole.
  */
-export function Sprite({ avatar, look = 'a', mood = 'idle', name, delay = 0, say = '', action = '', actionKey = 0, size = 72 }) {
+export function Sprite({ avatar, look = 'a', mood = 'idle', name, tag = null, delay = 0, say = '', action = '', actionKey = 0, size = 72 }) {
   const a = normalizeAvatar(avatar, look === 'a' ? 0 : 1);
   const icon = MOOD_ICON[mood];
   const style = `--delay:${delay}ms;${avatarStyle(a)};--sprite-w:${size}px`;
@@ -287,6 +287,6 @@ export function Sprite({ avatar, look = 'a', mood = 'idle', name, delay = 0, say
         ${spriteParts(a).map((p) => html`<path key=${p.c} class=${`px-${p.c}`} d=${p.d}/>`)}
       </svg>
       ${mood === 'sweat' && html`<i class="sweat" aria-hidden="true"></i>`}
-      ${name && html`<span class="sprite-name">${name}</span>`}
+      ${name && html`<span class=${`sprite-name ${tag ? 'has-tag' : ''}`}>${name}${tag && html`<i class="sprite-tag">${tag}</i>`}</span>`}
     </div>`;
 }

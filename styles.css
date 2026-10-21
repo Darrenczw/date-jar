@@ -1011,3 +1011,26 @@ dialog.sheet.closing::backdrop { animation: fade-out 0.23s ease-in forwards; }
 .select-bar .btn-row { flex-wrap: nowrap; }
 .select-bar .btn-row .btn { flex: none; }
 .pot-choice .hint { margin-top: 0.35rem; }
+
+/* ------------------------------------------------------------ R9 prototype: types */
+
+.sprite-name.has-tag { max-width: 11rem; padding-right: 0; }
+.sprite-tag { font-style: normal; margin-left: 4px; padding: 0 4px; color: #2e2a4f; background: var(--sun); }
+.type-group { margin-top: 0.6rem; }
+.type-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem; margin: 0.3rem 3px 0; }
+.type-tile { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; padding: 0.45rem 0.2rem; background: var(--panel); box-shadow: var(--px2); }
+.type-tile b { font-family: var(--font-pixel); font-size: 1.05rem; }
+.type-tile small { font-size: 0.72rem; color: var(--text-2); }
+.type-tile.on { background: var(--sun); color: #2e2a4f; }
+.type-tile.on small { color: #2e2a4f; }
+.type-pill { font-family: var(--font-pixel); font-size: 0.8rem; font-weight: 400; padding: 0 4px; background: var(--sun); color: #2e2a4f; box-shadow: var(--px2); margin-left: 0.2rem; }
+.style-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+.style-col { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.style-col > b { font-family: var(--font-pixel); font-size: 1.05rem; font-weight: 400; }
+.style-trait { display: flex; gap: 0.45rem; align-items: flex-start; margin: 0; }
+.style-trait b { display: block; font-size: 0.95rem; }
+.style-trait small { display: block; font-size: 0.78rem; color: var(--text-2); line-height: 1.25; }
+.trait-letter { flex: none; width: 1.6rem; height: 1.6rem; display: grid; place-items: center; font-family: var(--font-pixel); background: var(--panel-2); box-shadow: var(--px2); }
+.trait-letter.hit { background: var(--leaf); color: #2e2a4f; }
+.style-share { font-size: 0.78rem; color: var(--text-2); }
+.kind-styles .recap-body, .kind-typecheck .recap-body { font-size: 0.95rem; }
